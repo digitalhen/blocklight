@@ -45,5 +45,14 @@
   "devDependencies": {
     "maplibre-gl": "^6.10.0",
     "react": "^19.3.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/digitalhen/blocklight.git",
+    "directory": "packages/blocklight"
+  },
+  "homepage": "https://github.com/digitalhen/blocklight#readme",
+  "bugs": {
+    "url": "https://github.com/digitalhen/blocklight/issues"
   }
 }
