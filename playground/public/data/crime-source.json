@@ -1,0 +1,21 @@
+{
+  "title": "NYPD reported complaints · Midtown sample",
+  "dataset": "https://data.cityofnewyork.us/d/qgea-i56i",
+  "query": "https://data.cityofnewyork.us/resource/qgea-i56i.json?%24select=latitude%2Clongitude%2Ccount%28*%29+as+count&%24where=rpt_dt+%3E%3D+%272025-01-01T00%3A00%3A00%27+AND+rpt_dt+%3C+%272026-01-01T00%3A00%3A00%27+AND+latitude+%3E%3D+40.741+AND+latitude+%3C+40.768+AND+longitude+%3E%3D+-73.998+AND+longitude+%3C+-73.966&%24group=latitude%2Clongitude&%24order=latitude%2Clongitude&%24limit=50000",
+  "fetchedAt": "2026-09-18T14:47:46.761Z",
+  "dateField": "rpt_dt",
+  "from": "2025-01-01",
+  "toExclusive": "2026-01-01",
+  "total": 32482,
+  "cells": 200,
+  "grid": {
+    "west": -73.998,
+    "south": 40.741,
+    "east": -73.966,
+    "north": 40.768,
+    "latStep": 0.0018,
+    "lngStep": 0.00237
+  },
+  "methodology": "Each source row is a complaint. All offense categories included; filtered by report date, not occurrence date. Records with missing or out-of-bounds coordinates are excluded. Counts are aggregated into approximately 200m cells. No population or foot-traffic denominator. Blank areas have no included records, not proof of no crime. Location accuracy and reporting practices affect the result. Cell centers are not incident locations.",
+  "terms": "https://opendata.cityofnewyork.us/overview/#termsofuse"
+}

@@ -1,0 +1,35 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "strict": true,
+    "jsx": "react-jsx",
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "lib": [
+      "ES2022",
+      "DOM"
+    ],
+    "types": [
+      "node"
+    ],
+    "paths": {
+      "blocklight": [
+        "./packages/blocklight/src/index.ts"
+      ],
+      "blocklight/react": [
+        "./packages/blocklight/src/react.tsx"
+      ],
+      "blocklight/nyc": [
+        "./packages/blocklight/src/nyc.ts"
+      ]
+    }
+  },
+  "include": [
+    "packages/*/src",
+    "playground/src",
+    "tests",
+    "playwright.config.ts"
+  ]
+}

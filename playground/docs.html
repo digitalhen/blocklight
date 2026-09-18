@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Blocklight documentation</title><link rel="stylesheet" href="/src/style.css"></head>
+<body><header><a class="brand" href="./">blocklight <span class="version">Documentation</span></a><nav><a href="./">Playground ↗</a><a href="./react.html">React example ↗</a></nav></header>
+<main class="docs"><div class="eyebrow">BUILD A MAP. BRING YOUR DATA.</div><h1>Blocklight documentation</h1><p>A TypeScript library for styled city maps, 3D buildings, and JSON datasets. Start with the <a href="./#code">two runnable building blocks in the playground</a>. The package is a local preview and has not been published to npm.</p>
+<h2>Set up a map</h2><p>From the repository, run <code>npm install</code> and <code>npm run dev</code>. For another local project, build the package and install its directory. Import MapLibre’s stylesheet, give the container a height, and configure its worker in Vite:</p>
+<pre><code>import 'maplibre-gl/dist/maplibre-gl.css';
+import { setWorkerUrl } from 'maplibre-gl';
+import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&amp;url';
+import { createCityMap, buildings } from 'blocklight';
+import { nyc } from 'blocklight/nyc';
+setWorkerUrl(workerUrl);
+
+const city = createCityMap({
+  container: 'map', city: nyc, theme: 'blueprint',
+  zoom: 14.8, pitch: 57, bearing: -28,
+});
+city.addLayer(buildings({
+  id: 'buildings', source: '/data/buildings.geojson',
+  promoteId: 'source_id', heightProperty: 'height_m',
+}));</code></pre>
+<p>The core accepts your own city configuration and GeoJSON. NYC is an optional preset. Use <code>buildings</code>, <code>points</code>, <code>lines</code>, and <code>polygons</code> to compose layers. Themes are <code>blueprint</code> and <code>paper</code>.</p>
+<h2>Point at a JSON dataset</h2><p><code>addBuildingDataset</code> fetches data, joins it to geometry, and refreshes tiled geometry as the camera moves. <code>source</code> accepts a GeoJSON FeatureCollection URL or a Blocklight tile manifest. A top-level JSON array needs no <code>records</code> path.</p>
+<pre><code>import { addBuildingDataset, steppedScale } from 'blocklight';
+const layer = await addBuildingDataset(city, {
+  id: 'requests', source: '/data/city-buildings.json',
+  data: {
+    url: '/data/311-citywide.json', records: 'buildings',
+    join: { feature: 'source_id', record: 'buildingId' },
+    aggregate: { op: 'sum', field: 'count' },
+  },
+  color: steppedScale('value', [
+    { value: 0, color: '#26354d' },
+    { value: 1, color: '#e8c98a' },
+    { value: 20, color: '#bc6447' },
+  ]),
+});</code></pre>
+<p>Use a unique layer ID if you have already added a building layer. The join compares string or numeric keys after trimming whitespace. It does not pad IDs or perform spatial matching. Duplicate geometry keys remain unassigned rather than multiplying a record.</p>
+<h2>Multiple datasets and color schemes</h2><p>Pass a <code>datasets</code> array to <code>addBuildingDatasets</code>. Each entry has an <code>id</code>, <code>label</code>, <code>data</code> configuration and <code>color</code> scale. Entries can use different URLs or different fields in one file. JSON fetched from the same URL is cached by the controller.</p>
+<pre><code>const layer = await addBuildingDatasets(city, {
+  source: '/data/city-buildings.json',
+  datasets: [housing, heating, plumbing], // DatasetDefinition objects
+  active: 'housing',
+});
+select.replaceChildren(...[housing, heating, plumbing].map(dataset =&gt; {
+  const option = new Option(dataset.label, dataset.id);
+  return option;
+}));
+select.onchange = async () =&gt; {
+  try {
+    await layer.setDataset(select.value);
+    // Refresh your own detail panel using layer.getValue(selectedFeature).
+  } catch (error) { status.textContent = error.message; }
+};</code></pre>
+<p><a href="./#code">See complete dataset definitions in the complex example</a>. Switching keeps the camera and selected feature state. Use <code>layer.active</code> for the active ID, <code>getValue(feature)</code> for the aggregate, <code>getRecords(feature)</code> for matching JSON records, and <code>dispose()</code> to remove the layer and its listeners.</p>
+<h2>Aggregation and raw records</h2><p>Aggregation defaults to one count per matching record. Use <code>{ op: 'sum', field: 'count' }</code> for preaggregated records. Sum fields support dot paths such as <code>categories.PLUMBING</code>. Add <code>missing: 0</code> when absent categories mean zero; otherwise missing or nonnumeric amounts are errors. <code>property</code> changes the output property from <code>value</code>; your color scale must reference the same name.</p>
+<pre><code>// Raw records with a building identifier:
+data: {
+  url: '/data/requests.json',
+  join: { feature: 'bin', record: 'building_bin', multiplicity: 'bin_count' },
+  aggregate: { op: 'count' },
+}</code></pre>
+<p>For tiled geometry, joins on keys other than the stable feature ID require a citywide <code>multiplicity</code> property. Supply its count on each feature: only count 1 is eligible. The generated NYC geometry provides <code>base_bbl_count</code> and <code>mappluto_bbl_count</code> for tax-lot joins. The example <code>bin_count</code> above must be supplied by your own geometry pipeline. A tax lot can contain multiple buildings; raw BBL joins deliberately leave these ambiguous requests unassigned.</p>
+<h2>Click details and view changes</h2><pre><code>city.on('select', selection =&gt; {
+  details.textContent = selection
+    ? `${layer.getValue(selection.feature)} requests`
+    : 'Select a building';
+});
+city.map.easeTo({ pitch: 57, bearing: -28 });
+city.setTheme('paper');
+city.setVisible('requests', false);
+// When the page/component is removed:
+city.destroy();</code></pre>
+<p>Render data as text or escape it before inserting HTML. The <code>select</code> event provides <code>layerId</code>, <code>feature</code>, and <code>lngLat</code>; clearing emits null. For custom data updates, <code>setData(id, geometry, { preserveSelection: true })</code> requires a stable <code>promoteId</code>. Refresh your detail UI after switching datasets because the selection itself has not changed.</p>
+<h2>Citywide NYC data</h2><p>Run <code>npm run data:city</code> to download public footprints, streets, and 2025 HPD housing requests across all five boroughs. This is a substantial initial download. Generated assets are ignored by Git; a smaller bundled sample works immediately. The demo opens over Midtown in 3D and loads building tiles as you explore.</p><p>The prejoined JSON includes provenance, period, matched and unmatched totals, and per-building category and status counts. Single-building lots match by BBL; multiple-building lots require an unambiguous point inside a footprint. Requests are reports, not confirmed violations. Category views show linked category counts; unmatched totals and status/matching details remain explicitly labeled as all housing requests.</p>
+<h2>Dots at city scale</h2><p>The demo switches to building dots below zoom 14, then returns to footprints or 3D buildings as you zoom in. Dataset colors and selected details persist. The citywide overview includes every building with linked housing requests plus one in 32 other footprint IDs. Each dot is one building, not a cluster; the overview is labeled as a sample.</p><p>For your own map, use <code>buildingPoints(geojson)</code> to preserve footprint IDs and attributes on point features. Add a <code>points</code> layer with <code>maxzoom: 14</code>, and buildings with <code>minzoom: 14</code>. The marker is the footprint bounding-box center, not an entrance or a guaranteed interior point. Use a small prebuilt point source for large cities, so zooming out does not download every polygon.</p><h2>React and lifecycle</h2><p>Use the optional <code>blocklight/react</code> entry point; the <a href="./react.html">React example</a> demonstrates Strict Mode mounting and cleanup. The framework-independent core exposes the underlying MapLibre map as <code>city.map</code>. Await <code>city.ready</code> for style setup; it does not mean all data has finished rendering. Subscribe to <code>error</code> to show loading failures.</p>
+<p>Code is MIT licensed. Public datasets retain their own terms and attribution; see DATA.md in the repository.</p></main></body></html>

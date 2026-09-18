@@ -1,0 +1,31 @@
+{
+  "name": "blocklight-workspace",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "playground"
+  ],
+  "scripts": {
+    "dev": "npm run dev -w playground --",
+    "build": "npm run build -w blocklight && npm run build -w playground",
+    "typecheck": "tsc --noEmit",
+    "test": "node --import tsx --test tests/*.test.ts tests/*.test.mjs",
+    "test:browser": "playwright test",
+    "check": "npm run typecheck && npm test && npm run build",
+    "data:nyc": "node scripts/data/fetch-nyc.mjs",
+    "data:crime": "node scripts/data/fetch-crime.mjs",
+    "data:311": "node scripts/data/fetch-311.mjs",
+    "data:city": "node scripts/data/download-city.mjs buildings && node scripts/data/download-city.mjs streets && node scripts/data/download-311-city.mjs && node scripts/data/verify-city-counts.mjs && node --max-old-space-size=8192 scripts/data/build-city.mjs && npm run data:overview",
+    "data:overview": "npm run build -w blocklight && node scripts/data/build-overview.mjs"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3",
+    "tsx": "^4.20.6",
+    "@types/node": "^22.0.0",
+    "@types/geojson": "^7946.0.16",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@playwright/test": "^1.58.0"
+  }
+}

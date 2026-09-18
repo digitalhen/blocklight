@@ -1,0 +1,37 @@
+{
+  "fetchedAt": "2026-09-18T15:00:42.308Z",
+  "terms": "https://opendata.cityofnewyork.us/overview/#termsofuse",
+  "note": "Data is governed by source terms, not the library MIT license. Building height_roof converted from feet to meters. Building sample covers a fixed Midtown box, not the whole city.",
+  "sources": [
+    {
+      "file": "buildings.geojson",
+      "url": "https://data.cityofnewyork.us/resource/5zhs-2jue.json?%24select=objectid%2Cbin%2Cbase_bbl%2Cmappluto_bbl%2Cheight_roof%2Cthe_geom&%24limit=5000&%24order=%3Aid&%24where=intersects%28the_geom%2C+%27POLYGON+%28%28-74.010+40.725%2C+-73.950+40.725%2C+-73.950+40.785%2C+-74.010+40.785%2C+-74.010+40.725%29%29%27%29&%24offset=0",
+      "dataset": "https://data.cityofnewyork.us/d/5zhs-2jue",
+      "featureCount": 25244,
+      "pagination": {
+        "pageSize": 5000,
+        "offsetStep": 5000
+      }
+    },
+    {
+      "file": "land.geojson",
+      "url": "https://data.cityofnewyork.us/resource/gthc-hcne.json?%24select=simplify_preserve_topology%28the_geom%2C0.00003%29+as+the_geom%2Cboroname&%24limit=5000&%24order=%3Aid&%24offset=0",
+      "dataset": "https://data.cityofnewyork.us/d/gthc-hcne",
+      "featureCount": 5,
+      "pagination": {
+        "pageSize": 5000,
+        "offsetStep": 5000
+      }
+    },
+    {
+      "file": "streets.geojson",
+      "url": "https://data.cityofnewyork.us/resource/inkn-q76z.json?%24select=the_geom&%24limit=5000&%24order=%3Aid&%24where=within_box%28the_geom%2C40.785%2C-74.010%2C40.725%2C-73.950%29&%24offset=0",
+      "dataset": "https://data.cityofnewyork.us/d/inkn-q76z",
+      "featureCount": 5233,
+      "pagination": {
+        "pageSize": 5000,
+        "offsetStep": 5000
+      }
+    }
+  ]
+}

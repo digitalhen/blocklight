@@ -1,0 +1,16 @@
+node_modules/
+dist/
+.DS_Store
+playwright-report/
+test-results/
+*.tgz
+.env*
+
+.cache/
+playground/public/data/city/
+playground/public/data/city-buildings.json
+playground/public/data/city-streets.json
+playground/public/data/311-citywide.json
+playground/public/data/city.json
+
+playground/public/data/city-overview.geojson
