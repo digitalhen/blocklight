@@ -8,6 +8,10 @@ Built with TypeScript and MapLibre GL JS. Framework-independent, with an optiona
 
 > **0.1 developer preview.** Available on [npm](https://www.npmjs.com/package/blocklight). APIs may change before 1.0.
 
+![New York City buildings in 3D, colored by linked 311 housing requests, with the Blueprint theme and dataset legend.](https://raw.githubusercontent.com/digitalhen/blocklight/main/docs/images/nyc-3d.jpg)
+
+*The NYC showcase: 3D footprints, building-level request counts, and controls for themes, datasets, and perspective.*
+
 ## Why Blocklight?
 
 A building map needs more than a renderer. Records need to match the right footprint. Colors need a legend. Selection needs to survive a change of dataset or perspective.
@@ -77,6 +81,10 @@ The complete two-dataset example:
 {{example:datasets}}
 
 The dataset selector, perspective button, legend, and details panel are built in. No event handlers are needed for these controls. Details update when the active dataset changes.
+
+![Flat building footprints in the Paper theme, colored by plumbing requests, with a selected building’s details panel open.](https://raw.githubusercontent.com/digitalhen/blocklight/main/docs/images/nyc-2d-details.jpg)
+
+*The same map in 2D, using the Paper theme and plumbing dataset. Clicking a building opens its linked records and attributes.*
 
 ## Make it yours
 
