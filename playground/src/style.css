@@ -61,3 +61,11 @@ html[data-theme="paper"] #dataset-select { background:#eef0f3; color:#26354d; }
   .brand svg { width:20px; }
   nav { min-width:0; flex-wrap:wrap; justify-content:flex-end; gap:6px 10px; font-size:9px; }
 }
+
+.city-switcher { display:flex; align-items:center; gap:16px; min-height:58px; padding:10px 30px; border-bottom:1px solid var(--line); font-size:12px; }
+.city-switcher label { color:var(--accent); }
+.city-switcher select { border:1px solid var(--line); border-radius:5px; background:var(--panel); color:var(--text); padding:8px 30px 8px 12px; font:inherit; }
+.city-switcher>span { color:var(--muted); font-size:11px; }
+.building-info dd { max-width:170px; overflow-wrap:anywhere; }
+@media(min-width:801px) { main:not(.docs) { height:clamp(540px, calc(100svh - 238px), 760px); } }
+@media(max-width:800px) { .city-switcher { padding:10px 20px; gap:10px; flex-wrap:wrap; } .city-switcher>span { flex-basis:100%; } }

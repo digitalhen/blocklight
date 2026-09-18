@@ -1,0 +1,23 @@
+{
+  "sources": [
+    "https://data.seattle.gov/d/teqw-tu6e",
+    "https://data-seattlecitygis.opendata.arcgis.com/datasets/SeattleCityGIS::building-outlines-2023"
+  ],
+  "energyQuery": "https://data.seattle.gov/resource/teqw-tu6e.json?%24where=datayear+%3D+%272024%27&%24limit=10000&%24order=osebuildingid",
+  "geometryService": "https://services.arcgis.com/ZOyb2t4B0UYuYNYH/arcgis/rest/services/Building_Outlines_2023/FeatureServer/0/query",
+  "bounds": [
+    -122.353,
+    47.595,
+    -122.321,
+    47.623
+  ],
+  "coverage": "Downtown Seattle extract",
+  "reportingYear": 2024,
+  "candidateRecords": 939,
+  "excludedRecords": 426,
+  "terms": "https://www.seattle.gov/tech/initiatives/open-data",
+  "notes": "2024 self-reported energy data; 2023 outlines. Only compliant reports with No Issue, one reported building, one record per parcel, and exactly one footprint across the entire parcel are joined. No nearest-building guesses. Heights estimated as floors × 3 meters for matched records; unknown heights stay flat. EUI: annual kBtu/ft². GHG intensity: annual kgCO₂e/ft². Different property uses are not directly comparable; no quality score is implied.",
+  "fetchedAt": "2026-09-18T19:10:01.336Z",
+  "buildings": 1444,
+  "matchedRecords": 513
+}

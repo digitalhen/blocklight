@@ -231,4 +231,35 @@ console.log(result.summary, result.unmatched);
 <h2>Development and compatibility</h2>
 <p><code>npm run check</code> checks generated docs, TypeScript, unit tests and builds. <code>npm run test:browser</code> runs WebGL integration tests against the actual demo and example routes. <code>npm run test:consumer</code> packs the library, installs it in an isolated copy of the dataset example, typechecks, builds, and runs browser controls with the packaged worker without workspace aliases. The supported baseline is Node 22.12+ for tooling and MapLibre 6.x for rendering. No stable API compatibility is promised before 1.0; breaking preview changes must be recorded in <code>CHANGELOG.md</code>.</p>
 <p>To edit documentation, update <code>docs/guide.md</code>, <code>docs/readme.md</code>, or the runnable example source, then run <code>npm run docs:build</code>. The website, repository README and packaged README are generated together. Do not edit their generated contents separately.</p>
+<h2>Exploring other cities</h2>
+<p>The <a href="./">playground</a> opens in New York. Its city selector also offers
+<a href="./?city=chicago">Chicago</a> (construction year and reported stories) and
+<a href="./?city=seattle">Seattle</a> (2024 site energy and emissions intensity).
+Chicago and Seattle are labeled downtown extracts. Each city has its own camera,
+geometry, dataset definitions, units, palettes, and source notes. Switching cities
+opens a fresh map; switching datasets keeps the selected building.</p>
+<p>The same configuration works with any city. For example, with the Seattle files
+from <code>playground/public/data/cities/seattle/</code> copied into your app&#39;s data directory:</p>
+<pre><code class="language-ts">createMap({
+  container: &#39;#map&#39;, center: [-122.3355, 47.6095], zoom: 15,
+  buildings: {
+    source: &#39;./data/buildings.geojson&#39;, featureId: &#39;building_id&#39;,
+    attribution: &#39;City of Seattle · 2023 building outlines&#39;,
+  },
+  datasets: [{
+    id: &#39;energy&#39;, label: &#39;Site energy · kBtu/ft²/year&#39;,
+    source: &#39;./data/datasets.json&#39;, records: &#39;eui&#39;,
+    join: { building: &#39;building_id&#39;, record: &#39;id&#39;, unique: true },
+    value: &#39;eui&#39;, colors: &#39;amber&#39;, breaks: [0, 50, 100],
+  }],
+  details: { title: &#39;name&#39;, fields: [&#39;address&#39;, &#39;use&#39;, &#39;reportingYear&#39;] },
+});
+</code></pre>
+<p><code>datasets.json</code> holds a separate array per metric so an unknown measurement is
+omitted from that metric instead of becoming zero. The importer establishes safe
+one-building joins before writing the portable JSON. Seattle&#39;s multi-building,
+ambiguous, or flagged records are excluded; the legend states how many. Heights
+are estimates from reported floors; unknown heights stay flat. See
+<a href="https://github.com/digitalhen/blocklight/blob/main/DATA.md">DATA.md</a> for methodology
+and upstream terms. Regenerate with <code>npm run data:cities</code>.</p>
 </main></body></html>

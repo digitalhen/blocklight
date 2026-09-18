@@ -211,4 +211,13 @@ async function start() {
     finally { input.value = ''; }
   };
 }
-start().catch(error => { $('status').textContent = 'Map unavailable'; $('map-error').hidden = false; $('map-error').textContent = error instanceof Error ? error.message : String(error); });
+const citySelector = $<HTMLSelectElement>('city-select');
+const requestedCity = new URLSearchParams(location.search).get('city');
+const selectedCity = requestedCity === 'chicago' || requestedCity === 'seattle' ? requestedCity : 'nyc';
+citySelector.value = selectedCity;
+citySelector.onchange = () => {
+  const url = new URL(location.href); url.hash = '';
+  if (citySelector.value === 'nyc') url.searchParams.delete('city'); else url.searchParams.set('city', citySelector.value);
+  location.assign(url.href);
+};
+(selectedCity === 'nyc' ? start() : import('./city-showcase.js').then(module => module.startCity(selectedCity))).catch(error => { $('status').textContent = 'Map unavailable'; $('map-error').hidden = false; $('map-error').textContent = error instanceof Error ? error.message : String(error); });

@@ -22,7 +22,8 @@
     "docs:check": "node scripts/docs/build.mjs --check",
     "test:consumer": "node scripts/test-consumer.mjs",
     "benchmark": "node scripts/benchmark.mjs",
-    "data:chicago": "node scripts/data/fetch-chicago.mjs"
+    "data:chicago": "node scripts/data/fetch-chicago.mjs",
+    "data:cities": "node scripts/data/fetch-showcase-cities.mjs"
   },
   "devDependencies": {
     "@playwright/test": "^1.58.0",

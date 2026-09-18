@@ -237,3 +237,45 @@ test('configured maps preserve details across switches, escape data, and clean u
  await expect(host.locator('.blocklight-ui')).toHaveCount(0);
  await expect(page.locator('#map .maplibregl-canvas')).toBeVisible();
 });
+
+for (const city of ['chicago', 'seattle']) test(`${city} showcase switches metrics and preserves selected buildings between perspectives`, async ({ page }) => {
+ const errors: string[] = []; page.on('pageerror', e => errors.push(e.message));
+ const requests: string[] = []; page.on('request', r => requests.push(r.url()));
+ await page.goto(`/?city=${city}`);
+ await expect(page.locator('#status')).toContainText('ready', { timeout: 30000 });
+ await expect(page.getByRole('combobox', { name: 'City', exact: true })).toHaveValue(city);
+ await expect(page.locator('#data-total')).toContainText('buildings with data');
+ expect(requests.some(url => /311-|city-buildings|city-streets/.test(url))).toBe(false);
+ await page.locator('#view2d').click();
+ await expect.poll(() => page.evaluate(() => Math.round(window.blocklight.map.getPitch()))).toBe(0);
+ await page.waitForFunction(() => window.blocklight.map.loaded());
+ const hit = await page.evaluate(() => {
+   const map = window.blocklight.map;
+   for (let y = 100; y < map.getCanvas().clientHeight - 60; y += 12) for (let x = 70; x < map.getCanvas().clientWidth - 380; x += 12) {
+     const f = map.queryRenderedFeatures([x, y], { layers: ['blocklight-layer-buildings-footprints'] }).find(f => f.properties.value_status === 'matched');
+     if (f) return { x, y };
+   }
+   return null;
+ });
+ expect(hit).not.toBeNull();
+ await page.locator('.maplibregl-canvas').click({ position: hit! });
+ await expect(page.locator('#building-info')).toBeVisible();
+ const title = await page.locator('#building-info-title').innerText();
+ await page.locator('#dataset-select').selectOption({ index: 1 });
+ await expect(page.locator('#dataset-select')).toBeEnabled();
+ await expect(page.locator('#building-info-title')).toHaveText(title);
+ await page.locator('#view3d').click();
+ await expect.poll(() => page.evaluate(() => Math.round(window.blocklight.map.getPitch()))).toBe(57);
+ await expect(page.locator('#building-info-title')).toHaveText(title);
+ await page.locator('#close-building').click();
+ await expect(page.locator('#data-legend')).toBeVisible();
+ await page.locator('#paper').click();
+ await expect(page.locator('html')).toHaveAttribute('data-theme', 'paper');
+ await page.setViewportSize({ width: 390, height: 844 });
+ expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+ const legend = await page.locator('#data-legend').boundingBox(), map = await page.locator('#map').boundingBox();
+ expect(legend!.y).toBeGreaterThanOrEqual(map!.y + map!.height - 1);
+ await page.getByRole('combobox', { name: 'City', exact: true }).selectOption(city === 'chicago' ? 'seattle' : 'nyc');
+ await expect(page.locator('#status')).toContainText(city === 'chicago' ? 'Seattle ready' : /Local data|Citywide data/, { timeout: 30000 });
+ expect(errors).toEqual([]);
+});

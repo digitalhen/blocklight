@@ -1,0 +1,18 @@
+{
+  "sources": [
+    "https://data.cityofchicago.org/d/syp8-uezg"
+  ],
+  "query": "https://data.cityofchicago.org/resource/syp8-uezg.json?%24where=intersects%28the_geom%2C+%27POLYGON+%28%28-87.648+41.867%2C+-87.615+41.867%2C+-87.615+41.899%2C+-87.648+41.899%2C+-87.648+41.867%29%29%27%29&%24order=bldg_id&%24limit=5000&%24offset=0",
+  "bounds": [
+    -87.648,
+    41.867,
+    -87.615,
+    41.899
+  ],
+  "coverage": "Downtown Chicago extract",
+  "terms": "https://www.chicago.gov/city/en/narr/foia/data_disclaimer.html",
+  "notes": "Historical footprint attributes, not verified current conditions. Join by original bldg_id. Height estimated as reported stories × 3 meters; unknown heights remain flat. Invalid/missing year and story values stay null, never zero.",
+  "fetchedAt": "2026-09-18T19:09:57.805Z",
+  "buildings": 2351,
+  "matchedRecords": 2351
+}
