@@ -22,3 +22,8 @@ html[data-theme="paper"] #dataset-select { background:#eef0f3; color:#26354d; }
 .docs h1 { font-size:44px; } .docs h2 { margin-top:40px; } .docs p, .docs li { line-height:1.7; } .docs pre { overflow:auto; padding:24px; background:#131e30; border:1px solid #354056; border-radius:8px; line-height:1.6; } .docs code { font-family:monospace; } .docs a { color:#e8c98a; }
 
 .docs { height:auto; min-height:0; max-height:none; }
+.docs h2 { font-size:24px; font-weight:600; letter-spacing:-.4px; line-height:1.25; }
+.docs h3 { font-size:18px; } .docs pre code { font-size:13px; line-height:1.6; }
+.docs table { width:100%; border-collapse:collapse; margin:24px 0; }
+.docs th, .docs td { padding:12px; border-bottom:1px solid var(--line); text-align:left; vertical-align:top; }
+.docs th { color:var(--accent); } .docs td { line-height:1.6; overflow-wrap:anywhere; }

@@ -180,3 +180,22 @@ test('citywide initial load defers overview geometry and building details', asyn
  await expect.poll(() => page.evaluate(() => Math.round(window.blocklight.map.getPitch()))).toBe(0);
  await expect.poll(() => page.evaluate(() => window.blocklight.map.queryRenderedFeatures({ layers: ['blocklight-layer-buildings-overview'] }).length)).toBeGreaterThan(100);
 });
+
+test('a fresh checkout uses the bundled sample and flat overview without city assets', async ({ page }) => {
+ await page.route('**/data/city.json', route => route.fulfill({ status: 404, body: 'Not found' }));
+ await page.goto('/');
+ await expect(page.getByRole('status')).toContainText('Local data');
+ await expect(page.locator('#coverage-name')).toHaveText('MIDTOWN SAMPLE');
+ await page.locator('#dataset-select').selectOption('plumbing');
+ await expect(page.locator('#dataset-select')).toBeEnabled();
+ await page.evaluate(() => window.blocklight.map.jumpTo({ zoom: 12 }));
+ await expect.poll(() => page.evaluate(() => window.blocklight.map.queryRenderedFeatures({ layers: ['blocklight-layer-buildings-overview'] }).length)).toBeGreaterThan(100);
+ expect(await page.evaluate(() => window.blocklight.map.getLayer('blocklight-layer-buildings-overview')?.type)).toBe('fill');
+});
+
+test('lower-level layers preserve explicit GeoJSON feature IDs without promoteId', async ({ page }) => {
+ await page.goto('/');
+ await expect(page.getByRole('status')).toHaveText(/Local data|Citywide data/, { timeout: 30000 });
+ await page.evaluate(() => window.blocklight.addLayer({ id: 'stable-id', kind: 'points', source: { type: 'FeatureCollection', features: [{ type: 'Feature', id: 314159, properties: {}, geometry: { type: 'Point', coordinates: [-73.9815, 40.7548] } }] } }));
+ await expect.poll(() => page.evaluate(() => window.blocklight.map.querySourceFeatures('blocklight-source-stable-id')[0]?.id)).toBe(314159);
+});
