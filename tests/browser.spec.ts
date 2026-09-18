@@ -12,6 +12,12 @@ test('building-linked 311, click details, combined camera transitions, themes an
   await page.goto('/');
   await expect(page.getByRole('status')).toHaveText(/Local data|Citywide data/, { timeout: 30000 });
   await expect(page.locator('#data-total')).toHaveText(`${dataset.summary.matchedRequests.toLocaleString()} linked requests`);
+  const layerOrder = await page.evaluate(() => window.blocklight.map.getStyle().layers.map(layer => layer.id));
+  const streetsIndex = layerOrder.indexOf('blocklight-layer-streets');
+  expect(streetsIndex).toBeGreaterThan(layerOrder.indexOf('blocklight-layer-land'));
+  for (const id of ['buildings', 'buildings-footprints', 'buildings-overview']) {
+    expect(streetsIndex).toBeLessThan(layerOrder.indexOf(`blocklight-layer-${id}`));
+  }
   expect(await page.evaluate(() => window.blocklight.map.getPitch())).toBe(57);
   await page.locator('#view2d').click();
   await expect.poll(() => page.evaluate(() => Math.round(window.blocklight.map.getPitch()))).toBe(0);

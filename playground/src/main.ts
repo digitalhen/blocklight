@@ -1,6 +1,6 @@
 import 'blocklight/style.css';
 import './style.css';
-import { createMap, lines, polygons, points, type ColorScale, GeoJSONTileLoader, type GeoJSONTileManifest, type Bounds, type ThemeName, type Selection } from 'blocklight';
+import { createMap, renderId, lines, polygons, points, type ColorScale, GeoJSONTileLoader, type GeoJSONTileManifest, type Bounds, type ThemeName, type Selection } from 'blocklight';
 import { nyc } from 'blocklight/nyc';
 import type { FeatureCollection } from 'geojson';
 import { parseBuildingDataset, type BuildingDataset, type BuildingRecord } from './building-data.js';
@@ -81,9 +81,11 @@ async function start() {
   map.on('error', error => { $('status').textContent = error.message; });
   map.addLayer(polygons({ id: 'land', source: land, interactive: false, attribution }));
   const streets = streetTiles ? await streetTiles.load(viewportBounds()) : await readJSON('streets.geojson') as FeatureCollection;
-  map.addLayer(lines({ id: 'streets', source: streets, interactive: false, width: 1.3, attribution }));
   await app.ready;
   const layer = app.datasetController!;
+  map.addLayer(lines({ id: 'streets', source: streets, interactive: false, width: 1.3, attribution }));
+  // Geometry loads concurrently: keep ground layers below every building representation.
+  map.map.moveLayer(renderId('streets'), renderId(layer.layerIds.buildings));
   map.addLayer(points({ id: 'places', source: places, radius: 6 }));
   function periodLabel() {
     const from = new Date(`${dataset.period.from}T00:00:00Z`);
