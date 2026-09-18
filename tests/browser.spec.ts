@@ -17,12 +17,12 @@ test('building-linked 311, click details, combined camera transitions, themes an
   await expect.poll(() => page.evaluate(() => Math.round(window.blocklight.map.getPitch()))).toBe(0);
   await page.waitForFunction(() => window.blocklight.map.loaded());
   await expect(page.locator('#buildings')).toBeChecked();
-  expect(await page.evaluate(() => window.blocklight.map.queryRenderedFeatures({ layers: ['blocklight-layer-footprints'] }).length)).toBeGreaterThan(100);
+  expect(await page.evaluate(() => window.blocklight.map.queryRenderedFeatures({ layers: ['blocklight-layer-buildings-footprints'] }).length)).toBeGreaterThan(100);
   await page.screenshot({ path: 'test-results/311-desktop.png' });
   const hit = await page.evaluate(() => {
     const map = window.blocklight.map;
     for (let y = 100; y < map.getCanvas().clientHeight - 100; y += 9) for (let x = 30; x < map.getCanvas().clientWidth - 350; x += 9) {
-      const feature = map.queryRenderedFeatures([x, y], { layers: ['blocklight-layer-footprints'] })[0];
+      const feature = map.queryRenderedFeatures([x, y], { layers: ['blocklight-layer-buildings-footprints'] })[0];
       if (feature && Number(feature.properties.requests) > 0) return { x, y, count: Number(feature.properties.requests), id: feature.id };
     }
     throw new Error('No building with linked requests rendered');
@@ -51,13 +51,13 @@ test('building-linked 311, click details, combined camera transitions, themes an
   await page.screenshot({ path: 'test-results/311-3d-details.png' });
   await page.evaluate(() => window.blocklight.map.jumpTo({ zoom: 11.8 }));
   await expect(page.getByRole('status')).toContainText('Overview');
-  await expect.poll(() => page.evaluate(() => window.blocklight.map.queryRenderedFeatures({ layers: ['blocklight-layer-building-dots'] }).length)).toBeGreaterThan(100);
+  await expect.poll(() => page.evaluate(() => window.blocklight.map.queryRenderedFeatures({ layers: ['blocklight-layer-buildings-overview'] }).length)).toBeGreaterThan(100);
   expect(await page.evaluate(() => window.blocklight.map.queryRenderedFeatures({ layers: ['blocklight-layer-buildings'] }).length)).toBe(0);
   await expect(page.locator('#building-info-title')).toHaveText(selectedTitle!);
-  expect(await page.evaluate(id => window.blocklight.map.getFeatureState({ source: 'blocklight-source-building-dots', id: id! }).selected, hit.id)).toBe(true);
+  expect(await page.evaluate(id => window.blocklight.map.getFeatureState({ source: 'blocklight-source-buildings-overview', id: id! }).selected, hit.id)).toBe(true);
   await page.locator('#dataset-select').selectOption('plumbing');
   await expect(page.locator('#building-info-title')).toHaveText(selectedTitle!);
-  await page.screenshot({ path: 'test-results/building-dots-overview.png' });
+  await page.screenshot({ path: 'test-results/flat-overview.png' });
   await page.evaluate(() => window.blocklight.map.jumpTo({ zoom: 14.8 }));
   await expect.poll(() => page.evaluate(() => window.blocklight.map.queryRenderedFeatures({ layers: ['blocklight-layer-buildings'] }).length)).toBeGreaterThan(100);
   await expect(page.locator('#building-info-title')).toHaveText(selectedTitle!);
@@ -66,7 +66,7 @@ test('building-linked 311, click details, combined camera transitions, themes an
   await page.locator('#view2d').click();
   await expect.poll(() => page.evaluate(() => Math.round(window.blocklight.map.getPitch()))).toBe(0);
   await expect(page.locator('#building-info-title')).toHaveText(selectedTitle!);
-  expect(await page.evaluate(id => window.blocklight.map.getFeatureState({ source: 'blocklight-source-footprints', id: id! }).selected, hit.id)).toBe(true);
+  expect(await page.evaluate(id => window.blocklight.map.getFeatureState({ source: 'blocklight-source-buildings-footprints', id: id! }).selected, hit.id)).toBe(true);
   await page.getByRole('button', { name: 'Close building details' }).click();
   await expect(page.locator('#building-info')).toBeHidden();
   await expect(page.locator('#data-legend')).toBeVisible();
@@ -133,7 +133,7 @@ test('citywide footprints load in all five boroughs while opening in Midtown', a
   await expect.poll(() => page.evaluate(() => Math.round(window.blocklight.map.getPitch()))).toBe(0);
   for (const [prefix, lng, lat] of [['1', -73.9815, 40.7548], ['2', -73.918, 40.844], ['3', -73.944, 40.678], ['4', -73.83, 40.71], ['5', -74.115, 40.58]] as const) {
     await page.evaluate(({ lng, lat }) => window.blocklight.map.jumpTo({ center: [lng, lat], zoom: 15, pitch: 0, bearing: 0 }), { lng, lat });
-    await page.waitForFunction(prefix => window.blocklight.map.queryRenderedFeatures({ layers: ['blocklight-layer-footprints'] }).some(f => String(f.properties.bin).startsWith(prefix)), prefix, { timeout: 30000 });
+    await page.waitForFunction(prefix => window.blocklight.map.queryRenderedFeatures({ layers: ['blocklight-layer-buildings-footprints'] }).some(f => String(f.properties.bin).startsWith(prefix)), prefix, { timeout: 30000 });
   }
 });
 

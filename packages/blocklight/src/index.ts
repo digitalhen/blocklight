@@ -5,3 +5,5 @@ export { steppedScale, type ColorScale, type LegendItem } from './scales.js';
 export { GeoJSONTileLoader, tileKeys, type GeoJSONTileManifest, type Bounds } from './tiles.js';
 export { addBuildingDataset, addBuildingDatasets, createDatasetJoin, type DatasetDefinition, type BuildingDatasetOptions, type DatasetConfig } from './dataset.js';
 export { buildingPoints } from './overview.js';
+
+export { addBuildingView, type BuildingViewOptions, type BuildingViewState, type GeometrySource } from './building-view.js';

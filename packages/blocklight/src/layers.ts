@@ -8,6 +8,8 @@ export interface LayerOptions {
   attribution?: string;
   /** Use a stable property for IDs when replacing viewport data. */
   promoteId?: string;
+  /** Opt in to index-based IDs only for static data without stable IDs. */
+  generateId?: boolean;
   interactive?: boolean;
   visible?: boolean;
   minzoom?: number;

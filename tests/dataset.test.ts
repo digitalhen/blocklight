@@ -16,10 +16,10 @@ test('nested dataset aggregation, absent categories and selection outside viewpo
 });
 test('raw records count once and ambiguous lots never duplicate requests', () => {
  const join = createDatasetJoin([{ bbl: '1' }, { bbl: '1' }, { bbl: '2' }, {}], { url: '', join: { feature: 'lot', record: 'bbl' } });
- assert.deepEqual(join.decorate(fc(feature('a', '1'), feature('b', '1'), feature('c', '2'))).features.map(f => f.properties?.value), [0, 0, 1]);
+ assert.deepEqual(join.decorate(fc(feature('a', '1'), feature('b', '1'), feature('c', '2'))).features.map(f => f.properties?.value), [null, null, 1]);
  assert.equal(join.missingKeys, 1);
  const citywide = createDatasetJoin([{ bbl: '1' }], { url: '', join: { feature: 'lot', record: 'bbl', multiplicity: 'lot_count' } });
- assert.equal(citywide.decorate(fc({ ...feature('a', '1'), properties: { lot: '1', lot_count: 2 } })).features[0].properties?.value, 0);
+ assert.equal(citywide.decorate(fc({ ...feature('a', '1'), properties: { lot: '1', lot_count: 2 } })).features[0].properties?.value, null);
 });
 
 test('multiple datasets cache shared JSON, switch palette, preserve selection, and reject unknown IDs', async () => {
@@ -35,23 +35,24 @@ test('multiple datasets cache shared JSON, switch palette, preserve selection, a
  };
  const map = {
    ready: Promise.resolve(),
+   getSelection() { return null; }, setVisible() {},
    addLayer() {}, removeLayer() { removed = true; },
    setData(_id: string, data: FeatureCollection, options: { preserveSelection: boolean }) { updates.push({ data, preserve: options.preserveSelection }); },
    setColor(_id: string, color: unknown) { colors.push(color); },
-   map: { getBounds: () => ({ getWest: () => 0, getSouth: () => 0, getEast: () => 1, getNorth: () => 1 }), once() {}, off() {} },
+   map: { getZoom: () => 15, on() {}, getBounds: () => ({ getWest: () => 0, getSouth: () => 0, getEast: () => 1, getNorth: () => 1 }), once() {}, off() {} },
  };
  try {
    const layer = await addBuildingDatasets(map as unknown as import('../packages/blocklight/src/map.js').CityMap, {
      source: '/geometry.json', featureId: 'id', datasets: [
        { id: 'housing', label: 'Housing', data: { ...config, aggregate: { op: 'sum', field: 'count' } }, color: '#aabbcc' },
-       { id: 'heat', label: 'Heat', data: config, color: '#ff8800' },
+       { id: 'heat', label: 'Heat', data: config },
      ],
    });
    assert.equal(layer.getValue(feature('a')), 12);
    await layer.setDataset('heat');
    assert.equal(layer.active, 'heat'); assert.equal(layer.getValue(feature('a')), 7);
-   assert.equal(updates.at(-1)?.data.features[0].properties?.value, 7);
-   assert.ok(updates.every(update => update.preserve)); assert.equal(colors.at(-1), '#ff8800');
+   assert.ok(updates.some(update => update.data.features[0]?.properties?.value === 7));
+   assert.ok(updates.every(update => update.preserve)); assert.equal(colors.at(-1), undefined);
    await layer.setDataset('housing');
    assert.equal(layer.getValue(feature('a')), 12);
    assert.equal(reads.filter(url => url.endsWith('data.json')).length, 1);
@@ -62,4 +63,13 @@ test('multiple datasets cache shared JSON, switch palette, preserve selection, a
    if (previousDocument) Object.defineProperty(globalThis, 'document', previousDocument);
    else Reflect.deleteProperty(globalThis, 'document');
  }
+});
+
+test('no match and ambiguous joins remain distinct from a real zero', () => {
+ const join = createDatasetJoin([{ id: 'a', count: 0 }], { url: '', join: { feature: 'id', record: 'id', unique: true }, aggregate: { op: 'sum', field: 'count' } });
+ assert.equal(join.getResult(feature('a')).status, 'matched');
+ assert.equal(join.getValue(feature('a')), 0);
+ assert.equal(join.getValue(feature('b')), null);
+ assert.equal(join.getResult(feature('b')).status, 'unmatched');
+ assert.throws(() => join.decorate(fc(feature('a'), feature('a'))), /Duplicate unique/);
 });

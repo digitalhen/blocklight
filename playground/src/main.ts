@@ -1,15 +1,15 @@
 import './worker.js';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import './style.css';
-import { createCityMap, buildingPoints, buildings, lines, polygons, points, createDatasetJoin, type ColorScale, GeoJSONTileLoader, type GeoJSONTileManifest, type Bounds, type ThemeName, type Selection } from 'blocklight';
+import { createCityMap, addBuildingDatasets, lines, polygons, points, type ColorScale, GeoJSONTileLoader, type GeoJSONTileManifest, type Bounds, type ThemeName, type Selection } from 'blocklight';
 import { nyc } from 'blocklight/nyc';
 import type { FeatureCollection } from 'geojson';
-import { parseBuildingDataset, type BuildingDataset } from './building-data.js';
+import { parseBuildingDataset, type BuildingDataset, type BuildingRecord } from './building-data.js';
 import { datasetDefinitions } from './datasets.js';
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 const attribution = '<a href="https://opendata.cityofnewyork.us/">NYC Open Data</a>';
 const detailZoom = 14;
-const buildingLayers = ['buildings', 'footprints', 'building-dots'];
+const buildingLayers = ['buildings', 'buildings-footprints', 'buildings-overview'];
 const initial = { center: nyc.center, zoom: 15.3, pitch: 57, bearing: -28 };
 async function readJSON(name: string): Promise<unknown> {
   const response = await fetch(`./data/${name}`);
@@ -25,15 +25,14 @@ async function start() {
   const map = createCityMap({ container: 'map', city: nyc, ...initial, zoom: 14.8, mapOptions: { maxZoom: 18.5, minZoom: 10 } });
   (window as unknown as { blocklight: typeof map }).blocklight = map;
   map.on('error', error => { $('status').textContent = error.message; });
-  let buildingTiles: GeoJSONTileLoader | undefined, streetTiles: GeoJSONTileLoader | undefined;
+  let buildingManifest: GeoJSONTileManifest | undefined, streetTiles: GeoJSONTileLoader | undefined;
   let geometryVersion: string | undefined;
   let datasetFile = '311-buildings.json';
   const cityResponse = await fetch('./data/city.json');
   if (cityResponse.ok && cityResponse.headers.get('content-type')?.includes('application/json')) {
     const city = await cityResponse.json();
-    const manifestURL = new URL('./data/city-buildings.json', location.href).href;
-    const [buildingManifest, streetManifest] = await Promise.all([readJSON('city-buildings.json'), readJSON('city-streets.json')]) as [GeoJSONTileManifest, GeoJSONTileManifest];
-    buildingTiles = new GeoJSONTileLoader(buildingManifest, manifestURL);
+    const [nextBuildingManifest, streetManifest] = await Promise.all([readJSON('city-buildings.json'), readJSON('city-streets.json')]) as [GeoJSONTileManifest, GeoJSONTileManifest];
+    buildingManifest = nextBuildingManifest;
     streetTiles = new GeoJSONTileLoader(streetManifest, new URL('./data/city-streets.json', location.href).href);
     geometryVersion = city.geometryVersion; datasetFile = '311-citywide.json';
   } else if (!cityResponse.ok && cityResponse.status !== 404) throw new Error(`Could not load city metadata (${cityResponse.status}).`);
@@ -41,33 +40,37 @@ async function start() {
     const bounds = map.map.getBounds(); return [bounds.getWest(), bounds.getSouth(), bounds.getEast(), bounds.getNorth()];
   }
   const [land, places] = await Promise.all(['land', 'places'].map(async name => await readJSON(`${name}.geojson`) as FeatureCollection));
-  let [skyline, streets] = await Promise.all([
-    buildingTiles ? buildingTiles.load(viewportBounds()) : readJSON('buildings.geojson') as Promise<FeatureCollection>,
-    streetTiles ? streetTiles.load(viewportBounds()) : readJSON('streets.geojson') as Promise<FeatureCollection>,
-  ]);
-  let dataset = parseBuildingDataset(await readJSON(datasetFile), buildingTiles ? undefined : skyline, geometryVersion);
+  const skyline = buildingManifest ? undefined : await readJSON('buildings.geojson') as FeatureCollection;
+  const streets = streetTiles ? await streetTiles.load(viewportBounds()) : await readJSON('streets.geojson') as FeatureCollection;
+  let dataset = buildingManifest ? await readJSON('311-metrics.json') as BuildingDataset : parseBuildingDataset(await readJSON(datasetFile), skyline);
+  if (buildingManifest && dataset.join.geometryVersion !== geometryVersion) throw new Error('Metrics and geometry versions do not match. Rebuild city assets.');
+  let uploaded = false;
   $<HTMLAnchorElement>('download-json').href = `./data/${datasetFile}`;
-  $('coverage-name').textContent = buildingTiles ? 'ALL FIVE BOROUGHS' : 'MIDTOWN SAMPLE';
-  $('layer-coverage').textContent = buildingTiles ? 'Citywide' : 'NYC sample';
-  $('street-coverage').textContent = buildingTiles ? 'All five boroughs' : 'Manhattan centerlines';
-  const overview = buildingTiles ? await readJSON('city-overview.geojson') as FeatureCollection : buildingPoints(skyline);
-  let records = new Map(dataset.buildings.map(record => [record.buildingId, record]));
+  $('coverage-name').textContent = buildingManifest ? 'ALL FIVE BOROUGHS' : 'MIDTOWN SAMPLE';
+  $('layer-coverage').textContent = buildingManifest ? 'Citywide' : 'NYC sample';
+  $('street-coverage').textContent = buildingManifest ? 'All five boroughs' : 'Manhattan centerlines';
+  const records = new Map<string, BuildingRecord>(buildingManifest ? [] : dataset.buildings.map(record => [record.buildingId, record]));
+  const detailCache = new Map<number, Promise<void>>();
   let currentSelection: Selection | null = null;
-  let transferringSelection = false;
-  let theme: ThemeName = 'blueprint', threeDimensional = true;
-  let activeId = 'housing';
-  const definition = () => datasetDefinitions(`./data/${datasetFile}`, theme).find(d => d.id === activeId)!;
+  let theme: ThemeName = 'blueprint', threeDimensional = true, activeId = 'housing';
+  const definitions = () => datasetDefinitions(`./data/${datasetFile}`, theme).map(d => ({ ...d, data: {
+    ...d.data, url: undefined, values: dataset,
+    aggregate: { op: 'sum' as const, field: buildingManifest && !uploaded ? ({ housing: 'count', heat: 'heat', plumbing: 'plumbing' }[d.id]!) : d.data.aggregate?.op === 'sum' ? d.data.aggregate.field : 'count', missing: 0 as const },
+  } }));
+  const definition = () => definitions().find(d => d.id === activeId)!;
   const requestScale = (_theme: ThemeName) => definition().color as ColorScale;
-  let join = createDatasetJoin(dataset, definition().data);
-  const decorated = join.decorate(skyline);
   map.addLayer(polygons({ id: 'land', source: land, interactive: false, attribution }))
-    .addLayer(lines({ id: 'streets', source: streets, interactive: false, width: 1.3, attribution }))
-    .addLayer(buildings({ id: 'footprints', source: decorated, promoteId: 'source_id', attribution, minzoom: detailZoom, extruded: false, visible: false, color: requestScale(theme) }))
-    .addLayer(buildings({ id: 'buildings', source: decorated, promoteId: 'source_id', attribution, minzoom: detailZoom, color: requestScale(theme) }))
-    .addLayer(points({ id: 'building-dots', source: join.decorate(overview), promoteId: 'source_id', maxzoom: detailZoom, color: requestScale(theme), radius: ['interpolate', ['linear'], ['zoom'], 10, 1.7, 14, 3.3] }))
-    .addLayer(points({ id: 'places', source: places, radius: 6 }));
-  function updateBuildingCount() { $('count').textContent = buildingTiles ? `${skyline.features.length.toLocaleString()} loaded · ${buildingTiles.manifest.featureCount.toLocaleString()} citywide` : `${skyline.features.length.toLocaleString()} buildings · roof heights in meters`; }
-  updateBuildingCount();
+    .addLayer(lines({ id: 'streets', source: streets, interactive: false, width: 1.3, attribution }));
+  const layer = await addBuildingDatasets(map, {
+    source: buildingManifest ? './data/city-buildings.json' : skyline!,
+    overview: buildingManifest ? './data/city-overview.geojson' : undefined,
+    detailZoom, datasets: definitions(), attribution,
+    onChange: state => {
+      $('count').textContent = state.mode === 'overview' ? `${state.featureCount.toLocaleString()} flat building footprints${buildingManifest ? ' · citywide sample' : ''}` : `${state.featureCount.toLocaleString()} loaded${buildingManifest ? ` · ${buildingManifest.featureCount.toLocaleString()} citywide` : ' buildings'}`;
+      $('status').textContent = state.mode === 'overview' ? 'Overview · flat footprints · zoom in for 3D' : buildingManifest ? 'Citywide data · loaded for this view.' : 'Local data. No API key required.';
+    }, onError: error => { $('status').textContent = error.message; },
+  });
+  map.addLayer(points({ id: 'places', source: places, radius: 6 }));
   function periodLabel() {
     const from = new Date(`${dataset.period.from}T00:00:00Z`);
     const through = new Date(Date.parse(`${dataset.period.toExclusive}T00:00:00Z`) - 86400000);
@@ -75,7 +78,7 @@ async function start() {
     return `${format.format(from)} – ${format.format(through)}`;
   }
   function updateLegend() {
-    const values = dataset.buildings.map(record => activeId === 'housing' ? record.count : record.categories[activeId === 'heat' ? 'HEAT/HOT WATER' : 'PLUMBING'] ?? 0);
+    const values = dataset.buildings.map(record => layer.getValue({ type: 'Feature', geometry: { type: 'Point', coordinates: [0, 0] }, properties: { source_id: record.buildingId } }) ?? 0);
     $('data-total').textContent = `${values.reduce((sum, value) => sum + value, 0).toLocaleString()} linked requests`;
     $('dataset-label').textContent = definition().label.toUpperCase() + ' / BY BUILDING';
     $('data-coverage').textContent = `${values.filter(value => value > 0).length.toLocaleString()} buildings · ${dataset.agency} · ${periodLabel()}`;
@@ -88,28 +91,16 @@ async function start() {
   }
   function paint() {
     const color = requestScale(theme);
-    map.setColor('footprints', color).setColor('buildings', color).setColor('building-dots', color);
+    layer.setColor(color);
     updateLegend();
   }
-  const activeBuildingLayer = () => map.map.getZoom() < detailZoom ? 'building-dots' : threeDimensional ? 'buildings' : 'footprints';
-  function showBuildings() {
-    const visible = $<HTMLInputElement>('buildings').checked;
-    const previous = currentSelection;
-    const transfer = visible && previous && buildingLayers.includes(previous.layerId);
-    transferringSelection = !!transfer;
-    try {
-      map.setVisible('buildings', visible && threeDimensional).setVisible('footprints', visible && !threeDimensional).setVisible('building-dots', visible);
-    } finally { transferringSelection = false; }
-    if (transfer) map.selectFeature(activeBuildingLayer(), previous.feature, previous.lngLat);
-  }
   function perspective(three: boolean, resetCamera = false) {
-    threeDimensional = three; showBuildings();
-    // One transition owns zoom, center, pitch and bearing. A second easeTo cancels the first.
-    map.map.easeTo({ ...(resetCamera ? { center: initial.center, zoom: 14.8 } : {}), pitch: three ? initial.pitch : 0, bearing: three ? initial.bearing : 0, duration: 700 });
+    threeDimensional = three;
+    layer.setPerspective(three ? '3d' : '2d');
+    if (resetCamera) map.map.easeTo({ center: initial.center, zoom: 14.8, pitch: three ? initial.pitch : 0, bearing: three ? initial.bearing : 0, duration: 700 });
     for (const [id, active] of [['view3d', three], ['view2d', !three]] as const) { $(id).classList.toggle('active', active); $(id).setAttribute('aria-pressed', String(active)); }
   }
   function renderSelection(selection: Selection | null) {
-    if (transferringSelection && selection === null) return;
     currentSelection = selection;
     const panel = $('building-info'), body = $('building-info-body');
     panel.hidden = !selection; $('data-legend').hidden = !!selection;
@@ -121,10 +112,27 @@ async function start() {
       $('detail').replaceChildren(node('span', 'SELECTED PLACE', 'eyebrow'), node('p', String(p.name ?? 'Place of interest'))); return;
     }
     const record = records.get(String(p.source_id));
+    if (!record && buildingManifest && !uploaded && layer.getResult(selection.feature).status === 'matched') {
+      $('building-info-title').textContent = `Building ${p.bin ?? p.source_id}`;
+      body.replaceChildren(node('p', 'Loading building details…'));
+      const bucket = Number(p.source_id) % 128;
+      let pending = detailCache.get(bucket);
+      if (!pending) {
+        pending = readJSON(`city/details/${bucket}.json`).then(value => { for (const item of value as BuildingRecord[]) records.set(item.buildingId, item); });
+        detailCache.set(bucket, pending);
+      }
+      void pending.then(() => {
+        if (currentSelection?.feature.properties.source_id === p.source_id) {
+          if (records.has(String(p.source_id))) renderSelection(currentSelection);
+          else body.replaceChildren(node('p', 'Building details are unavailable.'));
+        }
+      }).catch(() => { detailCache.delete(bucket); if (currentSelection?.feature.properties.source_id === p.source_id) body.replaceChildren(node('p', 'Could not load building details. Select the building to retry.')); });
+      return;
+    }
     $('building-info-title').textContent = record?.addresses[0] ?? `Building ${p.bin ?? p.source_id}`;
-    const selectedCount = activeId === 'housing' ? record?.count ?? 0 : record?.categories[activeId === 'heat' ? 'HEAT/HOT WATER' : 'PLUMBING'] ?? 0;
-    $('detail').replaceChildren(node('span', 'SELECTED BUILDING', 'eyebrow'), node('p', record ? `${selectedCount.toLocaleString()} linked ${definition().label.toLowerCase()}` : 'No linked 311 requests in this sample.'));
-    const count = node('div', `${selectedCount.toLocaleString()}`, 'building-request-count');
+    const selectedCount = layer.getValue(selection.feature);
+    $('detail').replaceChildren(node('span', 'SELECTED BUILDING', 'eyebrow'), node('p', record ? `${(selectedCount ?? 0).toLocaleString()} linked ${definition().label.toLowerCase()}` : 'No linked 311 requests in this sample.'));
+    const count = node('div', selectedCount === null ? '—' : selectedCount.toLocaleString(), 'building-request-count');
     body.replaceChildren(count, node('p', `${dataset.agency} · ${definition().label} · ${periodLabel()}`, 'info-muted'));
     const facts = node('dl', '');
     for (const [label, value] of [['Roof height', p.height_m == null ? 'Unavailable' : `${Number(p.height_m).toFixed(1)} m`], ['Building ID (BIN)', p.bin ?? 'Unavailable'], ['Tax lot (BBL)', p.base_bbl ?? 'Unavailable']]) facts.append(node('dt', String(label)), node('dd', String(value)));
@@ -144,82 +152,44 @@ async function start() {
   await map.ready;
   const selector = $<HTMLSelectElement>('dataset-select');
   selector.replaceChildren(...datasetDefinitions(`./data/${datasetFile}`, theme).map(d => { const option = node('option', d.label); option.value = d.id; return option; }));
-  selector.onchange = () => {
-    activeId = selector.value; join = createDatasetJoin(dataset, definition().data);
-    const next = join.decorate(skyline);
-    map.setData('footprints', next, { preserveSelection: true }).setData('buildings', next, { preserveSelection: true });
-    map.setData('building-dots', join.decorate(overview), { preserveSelection: true });
-    paint();
-    if (currentSelection) renderSelection(currentSelection);
+  selector.onchange = async () => {
+    selector.disabled = true;
+    try { await layer.setDataset(selector.value); activeId = layer.active; paint(); if (currentSelection) renderSelection(currentSelection); }
+    catch (error) { selector.value = layer.active; $('status').textContent = String(error); }
+    finally { selector.disabled = false; }
   };
   updateLegend(); $('status').textContent = 'Local data. No API key required.';
   for (const name of ['blueprint', 'paper'] as ThemeName[]) $(name).onclick = () => {
     theme = name; map.setTheme(name); paint(); document.documentElement.dataset.theme = name;
     for (const choice of ['blueprint', 'paper']) { $(choice).classList.toggle('active', name === choice); $(choice).setAttribute('aria-pressed', String(name === choice)); }
   };
-  map.map.on('zoomend', showBuildings);
-  $('buildings').onchange = showBuildings;
+  $('buildings').onchange = () => layer.setVisible($<HTMLInputElement>('buildings').checked);
   for (const id of ['streets', 'places']) $(id).onchange = () => map.setVisible(id, $<HTMLInputElement>(id).checked);
   $('view3d').onclick = () => perspective(true); $('view2d').onclick = () => perspective(false);
   $('reset').onclick = () => perspective(threeDimensional, true);
   $('close-building').onclick = () => { map.clearSelection(); map.map.getCanvas().focus(); };
   document.addEventListener('keydown', event => { if (event.key === 'Escape') map.clearSelection(); });
   map.on('select', renderSelection);
-  let viewportSequence = 0;
-  let viewportAbort: AbortController | undefined;
-  let lastTileBounds = '';
-  async function refreshViewport() {
-    if (map.map.getZoom() < detailZoom) {
-      viewportAbort?.abort(); ++viewportSequence; lastTileBounds = '';
-      $('count').textContent = `${overview.features.length.toLocaleString()} building dots${buildingTiles ? ' · citywide sample' : ''}`;
-      $('status').textContent = 'Overview · building dots · zoom in for shapes';
-      return;
-    }
-    if (!buildingTiles || !streetTiles) return;
-    const bounds = viewportBounds();
-    const key = bounds.map(n => n.toFixed(4)).join(',');
-    if (key === lastTileBounds) return;
-    lastTileBounds = key;
-    viewportAbort?.abort(); viewportAbort = new AbortController();
-    const sequence = ++viewportSequence;
-    try {
-      $('status').textContent = 'Loading this part of the city…';
-      const [nextBuildings, nextStreets] = await Promise.all([buildingTiles.load(bounds, viewportAbort.signal), streetTiles.load(bounds, viewportAbort.signal)]);
-      if (sequence !== viewportSequence) return;
-      const previous = currentSelection;
-      transferringSelection = true;
-      try {
-        skyline = nextBuildings; streets = nextStreets;
-        const decorated = join.decorate(skyline);
-        map.setData('footprints', decorated).setData('buildings', decorated).setData('streets', streets);
-      } finally { transferringSelection = false; }
-      if (previous && buildingLayers.includes(previous.layerId) && $<HTMLInputElement>('buildings').checked) map.selectFeature(activeBuildingLayer(), previous.feature, previous.lngLat);
-      updateBuildingCount(); $('status').textContent = 'Citywide data · loaded for this view.';
-    } catch (error) {
-      if (sequence !== viewportSequence || viewportAbort.signal.aborted) return;
-      lastTileBounds = '';
-      const message = error instanceof Error ? error.message : String(error);
-      if (message.includes('Zoom in')) {
-        const empty: FeatureCollection = { type: 'FeatureCollection', features: [] };
-        const previous = currentSelection; transferringSelection = true;
-        try { map.setData('footprints', empty).setData('buildings', empty).setData('streets', empty); }
-        finally { transferringSelection = false; }
-        if (previous) renderSelection(previous);
-      }
-      $('status').textContent = message;
-    }
+  if (streetTiles) {
+    let controller: AbortController | undefined;
+    map.map.on('moveend', () => {
+      controller?.abort(); controller = new AbortController();
+      if (map.map.getZoom() < detailZoom) return;
+      const signal = controller.signal;
+      void streetTiles!.load(viewportBounds(), signal).then(fc => { if (!signal.aborted) map.setData('streets', fc); }).catch(error => { if (!signal.aborted) $('status').textContent = String(error); });
+    });
   }
-  map.map.on('moveend', () => { void refreshViewport(); });
   $('load-json').onclick = () => $<HTMLInputElement>('json-file').click();
   $<HTMLInputElement>('json-file').onchange = async event => {
     const input = event.currentTarget as HTMLInputElement, file = input.files?.[0];
     if (!file) return;
     try {
       if (file.size > 50 * 1024 * 1024) throw new Error('Choose a building JSON file smaller than 50 MB.');
-      const parsed: BuildingDataset = parseBuildingDataset(JSON.parse(await file.text()), buildingTiles ? undefined : skyline, geometryVersion);
-      dataset = parsed; join = createDatasetJoin(dataset, definition().data); records = new Map(dataset.buildings.map(record => [record.buildingId, record]));
-      const next = join.decorate(skyline);
-      map.setData('footprints', next).setData('buildings', next).setData('building-dots', join.decorate(overview)); paint();
+      const parsed: BuildingDataset = parseBuildingDataset(JSON.parse(await file.text()), buildingManifest ? undefined : skyline, geometryVersion);
+      dataset = parsed; uploaded = true; records.clear();
+      for (const record of parsed.buildings) records.set(record.buildingId, record);
+      await layer.replaceDatasets(definitions(), activeId);
+      paint(); if (currentSelection) renderSelection(currentSelection);
       $('status').textContent = `Loaded ${file.name}`; $('json-error').hidden = true;
     } catch (error) { $('json-error').hidden = false; $('json-error').textContent = error instanceof Error ? error.message : String(error); }
     finally { input.value = ''; }

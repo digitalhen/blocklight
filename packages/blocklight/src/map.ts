@@ -30,6 +30,7 @@ export class CityMap {
   private loaded = false;
   private destroyed = false;
   private selected?: FeatureRef;
+  private selection: Selection | null = null;
   private hovered?: FeatureRef;
   private listeners = new Map<keyof Events, Set<(value: never) => void>>();
   private rejectReady!: (error: Error) => void;
@@ -71,7 +72,7 @@ export class CityMap {
   }
   private assertLive() { if (this.destroyed) throw new Error('This Blocklight map has been destroyed.'); }
   private install(layer: LayerDefinition) {
-    this.map.addSource(sourceId(layer.id), { type: 'geojson', data: layer.source, ...(layer.promoteId ? { promoteId: layer.promoteId } : { generateId: true }), attribution: layer.attribution });
+    this.map.addSource(sourceId(layer.id), { type: 'geojson', data: layer.source, ...(layer.promoteId ? { promoteId: layer.promoteId } : { generateId: layer.generateId ?? false }), attribution: layer.attribution });
     this.map.addLayer(toMapLibreLayer(layer, this.theme));
   }
   addLayer(layer: LayerDefinition): this {
@@ -89,11 +90,11 @@ export class CityMap {
     this.layers.delete(id);
     return this;
   }
-  setVisible(id: string, visible: boolean): this {
+  setVisible(id: string, visible: boolean, options: { preserveSelection?: boolean } = {}): this {
     this.assertLive();
     const layer = this.getLayer(id);
     layer.visible = visible;
-    if (!visible) this.resetLayerState(id);
+    if (!visible && !options.preserveSelection) this.resetLayerState(id);
     if (this.loaded) this.map.setLayoutProperty(renderId(id), 'visibility', visible ? 'visible' : 'none');
     return this;
   }
@@ -129,6 +130,7 @@ export class CityMap {
     this.emit('select', { layerId, feature: { type: 'Feature', id: feature.id, properties: feature.properties, geometry: feature.geometry }, lngLat: { lng: lngLat.lng, lat: lngLat.lat } });
     return this;
   }
+  getSelection(): Selection | null { return this.selection; }
   clearSelection(): this {
     this.assertLive();
     this.clearState(this.selected, 'selected'); this.selected = undefined;
@@ -154,7 +156,7 @@ export class CityMap {
     set.add(listener as (value: never) => void);
     return () => { set.delete(listener as (value: never) => void); };
   }
-  private emit<K extends keyof Events>(event: K, value: Events[K]) { for (const listener of this.listeners.get(event) ?? []) listener(value as never); }
+  private emit<K extends keyof Events>(event: K, value: Events[K]) { if (event === 'select') this.selection = value as Selection | null; for (const listener of this.listeners.get(event) ?? []) listener(value as never); }
   private getLayer(id: string) { const layer = this.layers.get(id); if (!layer) throw new Error(`Unknown layer "${id}".`); return layer; }
   private clearState(ref: FeatureRef | undefined, state: string) { if (ref && this.map.getSource(ref.source)) this.map.removeFeatureState(ref, state); }
   private clearHover = () => { this.clearState(this.hovered, 'hover'); this.hovered = undefined; this.map.getCanvas().style.cursor = ''; this.emit('hover', null); };
@@ -178,7 +180,7 @@ export class CityMap {
     this.destroyed = true;
     if (!this.loaded) this.rejectReady(new Error('Blocklight map destroyed before loading.'));
     this.map.getCanvas().removeEventListener('mouseleave', this.clearHover);
-    this.listeners.clear(); this.layers.clear(); this.map.remove();
+    this.selection = null; this.listeners.clear(); this.layers.clear(); this.map.remove();
   }
 }
 export function createCityMap(options: CityMapOptions) { return new CityMap(options); }
