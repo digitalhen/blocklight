@@ -4,7 +4,7 @@
 
 Blocklight is a TypeScript library on MapLibre GL JS. Bring GeoJSON footprints and a JSON attribute table; configure joins, aggregation, and colors. The building controller handles viewport loading, flat overview footprints, 2D/3D switching, and selection. Heights are extrusions of footprint polygons, not architectural meshes.
 
-This is an unpublished 0.1 developer preview. Requires WebGL 2, MapLibre GL JS 6, and a modern browser. React 18/19 is optional. The rendering core has no NYC or 311 requirement. Code is MIT; public data keeps its source terms.
+This is a 0.1 developer preview, available on [npm](https://www.npmjs.com/package/blocklight). Requires WebGL 2, MapLibre GL JS 6, and a modern browser. React 18/19 is optional. The rendering core has no NYC or 311 requirement. Code is MIT; public data keeps its source terms.
 
 ## Run an example
 
@@ -20,15 +20,14 @@ Open `/examples/basic/`, `/examples/datasets/`, or `/examples/chicago/` on the U
 To use an example outside this repository:
 
 ```sh
-# In the Blocklight repository:
-npm run build -w blocklight
-npm pack -w blocklight
 # Copy playground/examples/datasets to your own project folder, then:
-npm install /absolute/path/to/blocklight-0.1.0.tgz
+npm install blocklight maplibre-gl@^6
 npm run dev
 ```
 
-Installing the tarball replaces the example's local `file:` dependency. The examples use Vite. `createMap()` configures the bundled worker automatically; importing `blocklight/style.css` includes MapLibre's styles. Your bundler must emit `new URL(..., import.meta.url)` assets (as Vite does). For another asset pipeline, serve the packaged `dist/worker.js` yourself and pass `workerUrl`. No CDN or API key is required.
+Installing from npm replaces the example's local `file:` dependency. To test local changes, build and pack the library with `npm run build -w blocklight` and `npm pack -w blocklight`, then install the generated tarball in your application.
+
+The examples use Vite. `createMap()` configures the bundled worker automatically; importing `blocklight/style.css` includes MapLibre's styles. Your bundler must emit `new URL(..., import.meta.url)` assets (as Vite does). For another asset pipeline, serve the packaged `dist/worker.js` yourself and pass `workerUrl`. No CDN or API key is required.
 
 ## Basic map
 

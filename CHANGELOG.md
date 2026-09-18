@@ -1,6 +1,10 @@
 # Changelog
 
-## 0.1.0 — unreleased developer preview
+## 0.1.1 — 2026-09-18
+
+- Update README and documentation for installation from npm. No runtime changes.
+
+## 0.1.0 — 2026-09-18
 
 - New `createMap()` configuration API with bundled worker/CSS, dataset and perspective controls, legends, and building details.
 - Public building controller owns flat overview, 2D/3D, loading and selection.

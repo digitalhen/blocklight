@@ -7,7 +7,7 @@ Blocklight turns building footprints and JSON records into interactive city maps
 
 Built with TypeScript and MapLibre GL JS. Framework-independent, with an optional React entry point. MIT licensed.
 
-> **0.1 developer preview.** The package is not published to npm yet. You can run the examples or install a local tarball today. APIs may change before 1.0.
+> **0.1 developer preview.** Available on [npm](https://www.npmjs.com/package/blocklight). APIs may change before 1.0.
 
 ## Why Blocklight?
 
@@ -153,20 +153,15 @@ The bundled NYC 311 example shows reported requests, not confirmed violations or
 
 ## Use it in another project
 
-Until the npm release, build a tarball from this checkout:
+Install the package and its rendering dependency:
 
 ```sh
-npm run build -w blocklight
-npm pack -w blocklight
+npm install blocklight maplibre-gl@^6
 ```
 
-In your application, install the resulting file:
+For a complete starting point, copy `playground/examples/datasets` into a new project, run that install command there, then run `npm run dev`. Installing from npm replaces the example’s local workspace dependency.
 
-```sh
-npm install /absolute/path/to/blocklight-0.1.0.tgz maplibre-gl@^6
-```
-
-For a complete starting point, copy `playground/examples/datasets` into a new project, run that install command there, then run `npm run dev`. Installing the tarball replaces the example’s local workspace dependency.
+To test unpublished local changes, run `npm run build -w blocklight` and `npm pack -w blocklight` from the repository, then install the generated `.tgz` file in your application.
 
 The examples use Vite. Other bundlers must support CSS imports and emit `new URL(..., import.meta.url)` assets, or you can serve the packaged worker yourself and pass `workerUrl`. Rendering requires WebGL 2 and a modern browser. Create maps after the container mounts; module imports are safe during server rendering. React is optional.
 

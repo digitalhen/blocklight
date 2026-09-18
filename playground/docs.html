@@ -1,7 +1,7 @@
 <!doctype html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Blocklight documentation</title><link rel="stylesheet" href="/src/style.css"></head><body><header><a class="brand" href="./">blocklight</a><nav><a href="./">Playground</a><a href="./examples/basic/">Basic example</a><a href="./examples/datasets/">Datasets</a><a href="./examples/chicago/">Chicago</a></nav></header><main class="docs"><h1>Blocklight</h1>
 <p><strong>Building-level data maps, with styling and interaction already handled.</strong></p>
 <p>Blocklight is a TypeScript library on MapLibre GL JS. Bring GeoJSON footprints and a JSON attribute table; configure joins, aggregation, and colors. The building controller handles viewport loading, flat overview footprints, 2D/3D switching, and selection. Heights are extrusions of footprint polygons, not architectural meshes.</p>
-<p>This is an unpublished 0.1 developer preview. Requires WebGL 2, MapLibre GL JS 6, and a modern browser. React 18/19 is optional. The rendering core has no NYC or 311 requirement. Code is MIT; public data keeps its source terms.</p>
+<p>This is a 0.1 developer preview, available on <a href="https://www.npmjs.com/package/blocklight">npm</a>. Requires WebGL 2, MapLibre GL JS 6, and a modern browser. React 18/19 is optional. The rendering core has no NYC or 311 requirement. Code is MIT; public data keeps its source terms.</p>
 <h2>Run an example</h2>
 <p>From this repository:</p>
 <pre><code class="language-sh">npm ci
@@ -9,14 +9,12 @@ npm run dev
 </code></pre>
 <p>Open <code>/examples/basic/</code>, <code>/examples/datasets/</code>, or <code>/examples/chicago/</code> on the URL printed by Vite. Each folder includes its HTML, TypeScript, and small local data files. No citywide download or API key is needed. The Chicago example uses historical City of Chicago footprint attributes; estimated heights are reported stories multiplied by three meters.</p>
 <p>To use an example outside this repository:</p>
-<pre><code class="language-sh"># In the Blocklight repository:
-npm run build -w blocklight
-npm pack -w blocklight
-# Copy playground/examples/datasets to your own project folder, then:
-npm install /absolute/path/to/blocklight-0.1.0.tgz
+<pre><code class="language-sh"># Copy playground/examples/datasets to your own project folder, then:
+npm install blocklight maplibre-gl@^6
 npm run dev
 </code></pre>
-<p>Installing the tarball replaces the example&#39;s local <code>file:</code> dependency. The examples use Vite. <code>createMap()</code> configures the bundled worker automatically; importing <code>blocklight/style.css</code> includes MapLibre&#39;s styles. Your bundler must emit <code>new URL(..., import.meta.url)</code> assets (as Vite does). For another asset pipeline, serve the packaged <code>dist/worker.js</code> yourself and pass <code>workerUrl</code>. No CDN or API key is required.</p>
+<p>Installing from npm replaces the example&#39;s local <code>file:</code> dependency. To test local changes, build and pack the library with <code>npm run build -w blocklight</code> and <code>npm pack -w blocklight</code>, then install the generated tarball in your application.</p>
+<p>The examples use Vite. <code>createMap()</code> configures the bundled worker automatically; importing <code>blocklight/style.css</code> includes MapLibre&#39;s styles. Your bundler must emit <code>new URL(..., import.meta.url)</code> assets (as Vite does). For another asset pipeline, serve the packaged <code>dist/worker.js</code> yourself and pass <code>workerUrl</code>. No CDN or API key is required.</p>
 <h2>Basic map</h2>
 <p>This is the complete source of the basic example. Its HTML only provides <code>#map</code> with an explicit height. The map starts in 3D and owns its controls and status. Copy the whole example folder for a runnable project.</p>
 <pre><code class="language-ts">import { createMap } from &#39;blocklight&#39;;
