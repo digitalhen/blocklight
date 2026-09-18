@@ -13,6 +13,8 @@ Built with TypeScript and MapLibre GL JS. Framework-independent, with an optiona
 
 *The NYC showcase: 3D footprints, building-level request counts, and controls for themes, datasets, and perspective.*
 
+[Live demo](https://apps.cleartextlabs.com/blocklight/) · [Documentation](https://apps.cleartextlabs.com/blocklight/docs.html) · [npm](https://www.npmjs.com/package/blocklight)
+
 ## Why Blocklight?
 
 A building map needs more than a renderer. Records need to match the right footprint. Colors need a legend. Selection needs to survive a change of dataset or perspective.

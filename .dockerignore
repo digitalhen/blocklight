@@ -1,0 +1,15 @@
+.git
+node_modules
+**/node_modules
+**/dist
+.cache
+test-results
+playwright-report
+.env*
+*.tgz
+playground/public/data/city
+playground/public/data/city*.json
+playground/public/data/city-overview.geojson
+playground/public/data/311-citywide.json
+playground/public/data/311-metrics.json
+packages/blocklight/src/worker.js
