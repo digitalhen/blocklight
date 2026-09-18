@@ -63,7 +63,7 @@ async function start() {
     .addLayer(lines({ id: 'streets', source: streets, interactive: false, width: 1.3, attribution }));
   const layer = await addBuildingDatasets(map, {
     source: buildingManifest ? './data/city-buildings.json' : skyline!,
-    overview: buildingManifest ? './data/city-overview.geojson' : undefined,
+    overview: buildingManifest ? { type: 'vector', tiles: [new URL('./data/city/overview/{z}/{x}/{y}.pbf', location.href).href.replaceAll('%7B', '{').replaceAll('%7D', '}')], sourceLayer: 'buildings', minzoom: 8, maxzoom: 13, bounds: [-74.35, 40.44, -73.65, 40.94] } : undefined,
     detailZoom, datasets: definitions(), attribution,
     onChange: state => {
       $('count').textContent = state.mode === 'overview' ? `${state.featureCount.toLocaleString()} flat building footprints${buildingManifest ? ' · citywide sample' : ''}` : `${state.featureCount.toLocaleString()} loaded${buildingManifest ? ` · ${buildingManifest.featureCount.toLocaleString()} citywide` : ' buildings'}`;
@@ -84,7 +84,7 @@ async function start() {
     $('data-coverage').textContent = `${values.filter(value => value > 0).length.toLocaleString()} buildings · ${dataset.agency} · ${periodLabel()}`;
     $('data-unmatched').textContent = `Across all housing categories, ${dataset.summary.unmatchedRequests.toLocaleString()} of ${dataset.summary.totalRequests.toLocaleString()} requests could not be assigned to one building.`;
     $('data-scale').replaceChildren();
-    for (const item of requestScale(theme).legend.slice(0, -1)) {
+    for (const item of requestScale(theme).legend.map(item => item.label === 'No data' ? { ...item, label: 'No match' } : item)) {
       const key = node('span', ''); const swatch = node('i', ''); swatch.style.background = item.color;
       key.append(swatch, document.createTextNode(item.label)); $('data-scale').append(key);
     }

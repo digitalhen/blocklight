@@ -1,0 +1,16 @@
+import { writeFile, mkdir } from 'node:fs/promises';
+const root = new URL('../../playground/examples/chicago/data/', import.meta.url);
+const url = new URL('https://data.cityofchicago.org/resource/syp8-uezg.json');
+url.searchParams.set('$where', "st_name1 = 'WACKER'");
+url.searchParams.set('$limit', '1000'); url.searchParams.set('$order', 'bldg_id');
+const response = await fetch(url, { signal: AbortSignal.timeout(120000) });
+if (!response.ok) throw new Error(`Chicago fetch failed: ${response.status}`);
+const rows = await response.json();
+if (!rows.length || rows.length >= 1000) throw new Error('Unexpected empty or truncated Chicago extract.');
+const geometry = { type: 'FeatureCollection', features: rows.map(row => ({ type: 'Feature', id: row.bldg_id, properties: { building_id: row.bldg_id, height_m: Number(row.stories) > 0 ? Number(row.stories) * 3 : 0 }, geometry: row.the_geom })) };
+const attributes = rows.map(row => ({ id: row.bldg_id, name: [row.f_add1, row.pre_dir1, row.st_name1, row.st_type1].filter(Boolean).join(' '), year: Number(row.year_built), floors: Number(row.stories) })).filter(row => row.year > 1700 && row.year <= new Date().getUTCFullYear() && Number.isFinite(row.floors) && row.floors > 0);
+await mkdir(root, { recursive: true });
+await writeFile(new URL('buildings.geojson', root), JSON.stringify(geometry));
+await writeFile(new URL('attributes.json', root), JSON.stringify(attributes));
+await writeFile(new URL('source.json', root), JSON.stringify({ source: 'https://data.cityofchicago.org/d/syp8-uezg', query: url.href, fetchedAt: new Date().toISOString(), buildings: rows.length, attributes: attributes.length, notes: 'Historical source values, not verified current building information. Heights estimated as reported stories × 3 meters. Invalid/missing year or story records omitted from attributes; geometry retained.', terms: 'https://www.chicago.gov/city/en/narr/foia/data_disclaimer.html' }, null, 2));
+console.log(`Chicago: ${rows.length} footprints, ${attributes.length} building attribute records.`);

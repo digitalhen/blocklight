@@ -54,9 +54,18 @@ test('building-linked 311, click details, combined camera transitions, themes an
   await expect.poll(() => page.evaluate(() => window.blocklight.map.queryRenderedFeatures({ layers: ['blocklight-layer-buildings-overview'] }).length)).toBeGreaterThan(100);
   expect(await page.evaluate(() => window.blocklight.map.queryRenderedFeatures({ layers: ['blocklight-layer-buildings'] }).length)).toBe(0);
   await expect(page.locator('#building-info-title')).toHaveText(selectedTitle!);
-  expect(await page.evaluate(id => window.blocklight.map.getFeatureState({ source: 'blocklight-source-buildings-overview', id: id! }).selected, hit.id)).toBe(true);
+  expect(await page.evaluate(id => window.blocklight.map.getFeatureState({ source: 'blocklight-source-buildings-overview', ...(document.querySelector('#coverage-name')?.textContent === 'ALL FIVE BOROUGHS' ? { sourceLayer: 'buildings' } : {}), id: id! }).selected, hit.id)).toBe(true);
   await page.locator('#dataset-select').selectOption('plumbing');
   await expect(page.locator('#building-info-title')).toHaveText(selectedTitle!);
+  await expect.poll(() => page.evaluate(() => {
+    const map = window.blocklight.map;
+    const source = 'blocklight-source-buildings-overview';
+    if (map.getSource(source)?.type !== 'vector') return true;
+    return map.querySourceFeatures(source, { sourceLayer: 'buildings' }).some(f => {
+      const state = map.getFeatureState({ source, sourceLayer: 'buildings', id: f.id! });
+      return state.requests_status === 'matched' && Number(state.requests) > 0;
+    });
+  })).toBe(true);
   await page.screenshot({ path: 'test-results/flat-overview.png' });
   await page.evaluate(() => window.blocklight.map.jumpTo({ zoom: 14.8 }));
   await expect.poll(() => page.evaluate(() => window.blocklight.map.queryRenderedFeatures({ layers: ['blocklight-layer-buildings'] }).length)).toBeGreaterThan(100);
@@ -74,7 +83,7 @@ test('building-linked 311, click details, combined camera transitions, themes an
   await expect.poll(() => page.evaluate(() => Math.round(window.blocklight.map.getPitch()))).toBe(57);
   expect(await page.evaluate(() => JSON.stringify(window.blocklight.map.getPaintProperty('blocklight-layer-buildings', 'fill-extrusion-color')))).toContain('requests');
   await page.screenshot({ path: 'test-results/311-3d.png' });
-  await expect(page.locator('#code')).toContainText('/data/311-citywide.json');
+  await expect(page.locator('#code')).toContainText('./data/requests.json');
   await expect(page.locator('#code')).toContainText("record: 'buildingId'");
   await expect(page.locator('#example-city')).toHaveCount(0);
   await page.locator('#paper').click();
@@ -141,4 +150,33 @@ test('documentation is linked and explains dataset switching', async ({ page }) 
  await page.goto('/docs.html');
  await expect(page.getByRole('heading', { name: 'Multiple datasets and color schemes' })).toBeVisible();
  await expect(page.locator('main')).toContainText('layer.setDataset');
+});
+
+for (const example of ['basic', 'datasets', 'chicago']) test(`standalone ${example} example loads and handles its controls`, async ({ page }) => {
+ const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
+ await page.goto(`/examples/${example}/`);
+ await expect(page.getByRole('status')).toContainText('Ready');
+ await expect(page.locator('.maplibregl-canvas')).toBeVisible();
+ if (example !== 'basic') {
+   await page.locator('#dataset').selectOption({ index: 1 });
+   await expect(page.locator('#dataset')).toBeEnabled();
+   await page.locator('#view').click();
+   await expect(page.locator('#view')).toHaveText('Show 3D');
+ }
+ expect(errors).toEqual([]);
+});
+
+test('citywide initial load defers overview geometry and building details', async ({ page }) => {
+ test.skip(!cityReady);
+ const requests: string[] = []; page.on('request', request => requests.push(request.url()));
+ await page.goto('/');
+ await expect(page.getByRole('status')).toHaveText(/Local data|Citywide data/, { timeout: 30000 });
+ expect(requests.some(url => /city-overview|\/overview\/|\/city\/details\/|311-citywide.json/.test(url))).toBe(false);
+ await page.evaluate(() => window.blocklight.map.jumpTo({ zoom: 11.8 }));
+ await expect.poll(() => page.evaluate(() => window.blocklight.map.queryRenderedFeatures({ layers: ['blocklight-layer-buildings-overview'] }).length)).toBeGreaterThan(100);
+ expect(requests.some(url => url.endsWith('.pbf'))).toBe(true);
+ expect(await page.evaluate(() => window.blocklight.map.getLayer('blocklight-layer-buildings-overview')?.type)).toBe('fill');
+ await page.locator('#view2d').click();
+ await expect.poll(() => page.evaluate(() => Math.round(window.blocklight.map.getPitch()))).toBe(0);
+ await expect.poll(() => page.evaluate(() => window.blocklight.map.queryRenderedFeatures({ layers: ['blocklight-layer-buildings-overview'] }).length)).toBeGreaterThan(100);
 });

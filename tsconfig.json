@@ -30,6 +30,7 @@
     "packages/*/src",
     "playground/src",
     "tests",
-    "playwright.config.ts"
+    "playwright.config.ts",
+    "playground/examples"
   ]
 }

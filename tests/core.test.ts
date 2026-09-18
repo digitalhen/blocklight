@@ -35,3 +35,10 @@ test('buildings can render as flat footprints without losing their height attrib
   assert.equal(flat.id, 'blocklight-layer-footprints');
   assert.equal(flat.source, sourceId('footprints'));
 });
+
+test('native vector layers keep source-layer and support joined feature-state colors', () => {
+ const layer = buildings({ id: 'vector', source: { type: 'vector', tiles: ['https://example.test/{z}/{x}/{y}.pbf'], sourceLayer: 'buildings' }, promoteId: 'building_id', color: steppedScale('value', [{ value: 0, color: '#000' }, { value: 10, color: '#fff' }]) });
+ const spec = toMapLibreLayer(layer, themes.blueprint);
+ assert.equal('source-layer' in spec ? spec['source-layer'] : undefined, 'buildings');
+ assert.match(JSON.stringify(spec.paint), /feature-state.*value/);
+});

@@ -1,7 +1,7 @@
 import type { Feature, Geometry } from 'geojson';
 import { Map as LibreMap, NavigationControl, type MapOptions, type GeoJSONSource, type MapMouseEvent, type StyleSpecification } from 'maplibre-gl';
 import { resolveTheme, type Theme, type ThemeName } from './themes.js';
-import { sourceId, renderId, toMapLibreLayer, type LayerDefinition, type GeoJSONData } from './layers.js';
+import { isVectorSource, sourceId, renderId, toMapLibreLayer, type LayerDefinition, type GeoJSONData } from './layers.js';
 export interface City { id: string; name: string; center: [number, number]; zoom?: number; bounds?: [[number, number], [number, number]] }
 export interface CityMapOptions {
   container: string | HTMLElement;
@@ -17,7 +17,7 @@ export interface CityMapOptions {
 }
 export interface Selection { layerId: string; feature: Feature<Geometry, Record<string, unknown>>; lngLat: { lng: number; lat: number } }
 interface Events { select: Selection | null; hover: Selection | null; error: Error }
-type FeatureRef = { source: string; id: string | number };
+type FeatureRef = { source: string; sourceLayer?: string; id: string | number };
 export function baseStyle(theme: Theme): StyleSpecification {
   return { version: 8, name: 'blocklight', sources: {}, light: { anchor: 'viewport', color: '#ffffff', intensity: 0.35, position: [1.5, 210, 35] }, layers: [{ id: 'blocklight-background', type: 'background', paint: { 'background-color': theme.background } }] };
 }
@@ -72,7 +72,10 @@ export class CityMap {
   }
   private assertLive() { if (this.destroyed) throw new Error('This Blocklight map has been destroyed.'); }
   private install(layer: LayerDefinition) {
-    this.map.addSource(sourceId(layer.id), { type: 'geojson', data: layer.source, ...(layer.promoteId ? { promoteId: layer.promoteId } : { generateId: layer.generateId ?? false }), attribution: layer.attribution });
+    if (isVectorSource(layer.source)) {
+      const { sourceLayer, ...source } = layer.source;
+      this.map.addSource(sourceId(layer.id), { ...source, promoteId: layer.promoteId ?? source.promoteId, attribution: layer.attribution ?? source.attribution });
+    } else this.map.addSource(sourceId(layer.id), { type: 'geojson', data: layer.source, ...(layer.promoteId ? { promoteId: layer.promoteId } : { generateId: layer.generateId ?? false }), attribution: layer.attribution });
     this.map.addLayer(toMapLibreLayer(layer, this.theme));
   }
   addLayer(layer: LayerDefinition): this {
@@ -101,6 +104,7 @@ export class CityMap {
   setData(id: string, data: GeoJSONData, options: { preserveSelection?: boolean } = {}): this {
     this.assertLive();
     const layer = this.getLayer(id);
+    if (isVectorSource(layer.source)) throw new Error('Vector sources are immutable; use feature state or replace the layer.');
     if (options.preserveSelection && !layer.promoteId) throw new Error('Preserving selection requires promoteId on the layer.');
     if (!options.preserveSelection) this.resetLayerState(id);
     layer.source = data;
@@ -125,11 +129,12 @@ export class CityMap {
     if (!this.loaded || layer.visible === false) throw new Error('Select a feature only after its layer is loaded and visible.');
     if (feature.id == null) throw new Error('Selecting a feature requires a stable feature ID.');
     this.clearState(this.selected, 'selected');
-    this.selected = { source: sourceId(layerId), id: feature.id };
+    this.selected = { source: sourceId(layerId), id: feature.id, ...(isVectorSource(layer.source) ? { sourceLayer: layer.source.sourceLayer } : {}) };
     this.map.setFeatureState(this.selected, { selected: true });
     this.emit('select', { layerId, feature: { type: 'Feature', id: feature.id, properties: feature.properties, geometry: feature.geometry }, lngLat: { lng: lngLat.lng, lat: lngLat.lat } });
     return this;
   }
+  get isDestroyed(): boolean { return this.destroyed; }
   getSelection(): Selection | null { return this.selection; }
   clearSelection(): this {
     this.assertLive();
@@ -170,7 +175,7 @@ export class CityMap {
     const feature = layers.length ? this.map.queryRenderedFeatures(event.point, { layers })[0] : undefined;
     const state = type === 'select' ? 'selected' : 'hover';
     this.clearState(type === 'select' ? this.selected : this.hovered, state);
-    const ref = feature?.id != null ? { source: feature.source, id: feature.id } : undefined;
+    const ref = feature?.id != null ? { source: feature.source, sourceLayer: feature.sourceLayer, id: feature.id } : undefined;
     if (type === 'select') this.selected = ref; else { this.hovered = ref; this.map.getCanvas().style.cursor = feature ? 'pointer' : ''; }
     if (ref) this.map.setFeatureState(ref, { [state]: true });
     this.emit(type, feature ? { layerId: feature.layer.id.slice('blocklight-layer-'.length), feature, lngLat: { lng: event.lngLat.lng, lat: event.lngLat.lat } } : null);

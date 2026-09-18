@@ -1,6 +1,6 @@
 import type { FeatureCollection } from 'geojson';
 import type { CityMap, Selection } from './map.js';
-import { buildings, polygons } from './layers.js';
+import { buildings, polygons, isVectorSource, sourceId, type VectorGeometrySource } from './layers.js';
 import type { ColorScale } from './scales.js';
 import { GeoJSONTileLoader, type Bounds, type GeoJSONTileManifest } from './tiles.js';
 
@@ -13,7 +13,7 @@ export interface BuildingViewState {
 export interface BuildingViewOptions {
   source: GeometrySource;
   /** A simplified footprint source, fetched only when the camera enters overview. */
-  overview?: GeometrySource;
+  overview?: GeometrySource | VectorGeometrySource;
   /** Enables zoom-dependent representations. Defaults to 14 when overview is supplied. */
   detailZoom?: number;
   id?: string;
@@ -30,13 +30,13 @@ export interface BuildingViewOptions {
 const empty = (): FeatureCollection => ({ type: 'FeatureCollection', features: [] });
 
 /** Fetch GeoJSON or a static manifest once, then load only the visible tiles. */
-export function geometryLoader(source: GeometrySource) {
+export function geometryLoader(source: GeometrySource, lifetimeSignal?: AbortSignal) {
   let pending: Promise<FeatureCollection | GeoJSONTileLoader> | undefined;
   async function load(bounds: Bounds, signal?: AbortSignal): Promise<FeatureCollection> {
     if (!pending) pending = (async () => {
       if (typeof source !== 'string') return source;
       const url = new URL(source, document.baseURI);
-      const response = await fetch(url, { signal });
+      const response = await fetch(url, { signal: lifetimeSignal });
       if (!response.ok) throw new Error(`Could not load ${url.pathname} (${response.status}).`);
       const value = await response.json();
       if (value?.type === 'FeatureCollection' && Array.isArray(value.features)) return value as FeatureCollection;
@@ -62,8 +62,9 @@ export async function addBuildingView(city: CityMap, options: BuildingViewOption
   let transform = options.transform ?? ((fc: FeatureCollection) => fc);
   let detail = empty(), overview = empty();
   let controller: AbortController | undefined;
-  const detailLoader = geometryLoader(options.source);
-  const overviewLoader = options.overview ? geometryLoader(options.overview) : undefined;
+  const detailLoader = geometryLoader(options.source, options.signal);
+  const vectorOverview = isVectorSource(options.overview) ? options.overview : undefined;
+  const overviewLoader = options.overview && !vectorOverview ? geometryLoader(options.overview as GeometrySource, options.signal) : undefined;
   const mode = () => detailZoom > 0 && city.map.getZoom() < detailZoom ? 'overview' as const : 'buildings' as const;
   const activeLayer = () => mode() === 'overview' ? layerIds.overview : perspective === '3d' ? layerIds.buildings : layerIds.footprints;
   const state = (): BuildingViewState => ({ mode: mode(), perspective, featureCount: (mode() === 'overview' ? overview : detail).features.length });
@@ -97,8 +98,26 @@ export async function addBuildingView(city: CityMap, options: BuildingViewOption
     const nextDetail = transform(detail), nextOverview = transform(overview);
     city.setData(layerIds.buildings, nextDetail, { preserveSelection: true });
     city.setData(layerIds.footprints, nextDetail, { preserveSelection: true });
-    city.setData(layerIds.overview, nextOverview, { preserveSelection: true });
+    if (!vectorOverview) city.setData(layerIds.overview, nextOverview, { preserveSelection: true });
+    else paintVector(nextOverview);
     transfer(); options.onChange?.(state());
+  }
+  function paintVector(fc: FeatureCollection) {
+    if (!vectorOverview) return;
+    for (const feature of fc.features) city.map.setFeatureState({ source: sourceId(layerIds.overview), sourceLayer: vectorOverview.sourceLayer, id: feature.properties![featureId] }, feature.properties!);
+  }
+  function updateVector() {
+    if (disposed || !vectorOverview || mode() !== 'overview') return;
+    const features = new Map<string | number, Selection['feature']>();
+    for (const feature of city.map.querySourceFeatures(sourceId(layerIds.overview), { sourceLayer: vectorOverview.sourceLayer })) features.set(feature.properties[featureId], feature);
+    overview = { type: 'FeatureCollection', features: [...features.values()] };
+    paintVector(transform(overview));
+    options.onChange?.(state());
+  }
+  let vectorFrame = 0;
+  function onSource(event: { sourceId?: string; sourceDataType?: string }) {
+    if (event.sourceId !== sourceId(layerIds.overview) || vectorFrame) return;
+    vectorFrame = requestAnimationFrame(() => { vectorFrame = 0; updateVector(); });
   }
   async function refresh() {
     if (disposed) return;
@@ -107,6 +126,7 @@ export async function addBuildingView(city: CityMap, options: BuildingViewOption
     const bounds = city.map.getBounds();
     const bbox: Bounds = [bounds.getWest(), bounds.getSouth(), bounds.getEast(), bounds.getNorth()];
     const lowZoom = mode() === 'overview';
+    if (lowZoom && vectorOverview) { updateVector(); return; }
     const geometry = lowZoom && overviewLoader ? await overviewLoader.load(bbox, controller.signal) : await detailLoader.load(bbox, controller.signal);
     if (disposed || current !== revision) return;
     if (lowZoom) overview = validate(geometry);
@@ -121,9 +141,10 @@ export async function addBuildingView(city: CityMap, options: BuildingViewOption
   function dispose() {
     if (disposed) return;
     disposed = true; controller?.abort(); ++revision;
-    city.map.off('moveend', onMove); city.map.off('remove', onRemove);
+    city.map.off('moveend', onMove); city.map.off('remove', onRemove); city.map.off('sourcedata', onSource);
+    if (vectorFrame) cancelAnimationFrame(vectorFrame);
     options.signal?.removeEventListener('abort', dispose);
-    if (!removed) for (const layer of installed) city.removeLayer(layer);
+    if (!removed && !city.isDestroyed) for (const layer of installed) city.removeLayer(layer);
   }
   function onRemove() { removed = true; dispose(); }
   const installed: string[] = [];
@@ -134,19 +155,21 @@ export async function addBuildingView(city: CityMap, options: BuildingViewOption
     for (const layer of [
       buildings({ id: layerIds.buildings, source: empty(), promoteId: featureId, color: options.color, minzoom: detailZoom, heightProperty: options.heightProperty, attribution: options.attribution, visible: perspective === '3d' }),
       buildings({ id: layerIds.footprints, source: empty(), promoteId: featureId, color: options.color, minzoom: detailZoom, extruded: false, attribution: options.attribution, visible: perspective === '2d' }),
-      polygons({ id: layerIds.overview, source: empty(), promoteId: featureId, color: options.color, maxzoom: detailZoom, opacity: 0.75, attribution: options.attribution }),
+      polygons({ id: layerIds.overview, source: vectorOverview ?? empty(), promoteId: featureId, color: options.color, maxzoom: detailZoom, opacity: 0.75, attribution: options.attribution }),
     ]) { city.addLayer(layer); installed.push(layer.id); }
     await refresh();
     options.signal?.throwIfAborted();
   } catch (error) { dispose(); throw error; }
   city.map.on('moveend', onMove);
+  if (vectorOverview) city.map.on('sourcedata', onSource);
+  const assertLive = () => { if (disposed) throw new Error('This building view has been disposed.'); };
   return {
     layerIds, get state() { return state(); }, get geometry() { return detail; }, refresh, dispose,
-    setTransform(next: typeof transform) { transform = next; apply(); },
-    setColor(color?: string | ColorScale) { for (const layer of owned) city.setColor(layer, color); },
-    setVisible(next: boolean) { visible = next; if (!visible && owns(city.getSelection())) city.clearSelection(); syncVisibility(); },
+    setTransform(next: typeof transform) { assertLive(); transform = next; apply(); },
+    setColor(color?: string | ColorScale) { assertLive(); for (const layer of owned) city.setColor(layer, color); },
+    setVisible(next: boolean) { assertLive(); visible = next; if (!visible && owns(city.getSelection())) city.clearSelection(); syncVisibility(); },
     setPerspective(next: '2d' | '3d', camera: { pitch?: number; bearing?: number; duration?: number } = {}) {
-      perspective = next; syncVisibility();
+      assertLive(); perspective = next; syncVisibility();
       city.map.easeTo({ pitch: next === '3d' ? camera.pitch ?? 57 : 0, bearing: next === '3d' ? camera.bearing ?? -28 : 0, duration: camera.duration ?? 700 });
     },
   };

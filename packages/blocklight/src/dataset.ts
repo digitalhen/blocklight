@@ -44,7 +44,9 @@ export function createDatasetJoin(input: unknown, config: DatasetConfig) {
     const amount = config.aggregate?.op === 'sum' ? (atPath(row, config.aggregate.field) ?? config.aggregate.missing) : 1;
     if (typeof amount !== 'number' || !Number.isFinite(amount)) throw new Error('Aggregation requires finite numeric values.');
     const group = groups.get(id) ?? { value: 0, records: [] };
-    group.value += amount; group.records.push(row); groups.set(id, group);
+    group.value += amount;
+    if (!Number.isFinite(group.value)) throw new Error('Aggregation exceeds the finite numeric range.');
+    group.records.push(row); groups.set(id, group);
   }
   const property = config.property ?? 'value';
   const multiplicities = new Map<string, number>();
@@ -79,9 +81,16 @@ export function createDatasetJoin(input: unknown, config: DatasetConfig) {
 }
 /** The application configures data; this helper handles fetching, joining and viewport refreshes. */
 export async function addBuildingDataset(city: CityMap, options: BuildingDatasetOptions) {
+  options.signal?.throwIfAborted();
+  const lifetime = new AbortController();
+  let disposed = false;
+  const onAbort = () => { disposed = true; lifetime.abort(); };
+  options.signal?.addEventListener('abort', onAbort, { once: true });
+  city.map.once('remove', onAbort);
+  try {
   const id = options.id ?? 'buildings', featureId = options.featureId ?? 'source_id';
   const read = async (url: URL) => {
-    const response = await fetch(url, { signal: options.signal });
+    const response = await fetch(url, { signal: lifetime.signal });
     if (!response.ok) throw new Error(`Could not load ${url.pathname} (${response.status}).`);
     return response.json();
   };
@@ -104,15 +113,12 @@ export async function addBuildingDataset(city: CityMap, options: BuildingDataset
   if (!tiles && (!('features' in geometry) || geometry.type !== 'FeatureCollection')) throw new Error('Expected GeoJSON or a geometry manifest.');
   const version = (rawData as { join?: { geometryVersion?: string } })?.join?.geometryVersion;
   if (tiles && version && version !== tiles.manifest.geometryVersion) throw new Error('Data and geometry versions do not match.');
-  let disposed = false;
-  const lifetime = new AbortController();
-  const onAbort = () => lifetime.abort();
-  options.signal?.addEventListener('abort', onAbort, { once: true });
-  options.signal?.throwIfAborted();
+  lifetime.signal.throwIfAborted();
   const view = await addBuildingView(city, { ...options, source: tiles ? options.source : geometry as FeatureCollection, signal: lifetime.signal, transform: fc => join.decorate(fc) });
-  function dispose() { disposed = true; lifetime.abort(); view.dispose(); options.signal?.removeEventListener('abort', onAbort); }
+  function dispose() { disposed = true; lifetime.abort(); view.dispose(); options.signal?.removeEventListener('abort', onAbort); city.map.off('remove', onAbort); }
   let switchRevision = 0;
   async function setDataset(data: DatasetConfig, color?: string | ColorScale) {
+    if (disposed) throw new Error('This dataset controller has been disposed.');
     const request = ++switchRevision;
     const raw = await readData(data);
     if (disposed || request !== switchRevision) return false;
@@ -128,6 +134,7 @@ export async function addBuildingDataset(city: CityMap, options: BuildingDataset
     return true;
   }
   return { get rawData() { return rawData; }, getResult: (feature?: Feature | null) => join.getResult(feature), getValue: (feature?: Feature | null) => join.getValue(feature), getRecords: (feature?: Feature | null) => join.getRecords(feature), get recordCount() { return join.recordCount; }, get missingKeys() { return join.missingKeys; }, ...view, get state() { return view.state; }, get geometry() { return view.geometry; }, setDataset, dispose };
+  } catch (error) { lifetime.abort(); options.signal?.removeEventListener('abort', onAbort); city.map.off('remove', onAbort); throw error; }
 }
 
 export interface DatasetDefinition { id: string; label: string; data: DatasetConfig; color?: string | ColorScale }

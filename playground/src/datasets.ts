@@ -10,7 +10,7 @@ export function datasetDefinitions(url: string, theme: ThemeName): DatasetDefini
     id, label,
     data: { url, records: 'buildings', join: { feature: 'source_id', record: 'buildingId' }, aggregate: { op: 'sum', field, missing: 0 }, property: 'requests' },
     color: steppedScale('requests', [
-      { value: 0, color: themes[theme].buildingLow, label: 'None linked' },
+      { value: 0, color: themes[theme].buildingLow, label: '0' },
       ...[1, 5, 20, 50].map((value, i) => ({ value, color: colors[i], label: ['1–4', '5–19', '20–49', '50+'][i] })),
     ]),
   }));

@@ -1,10 +1,12 @@
-import type { GeoJSONSourceSpecification, LayerSpecification, ExpressionSpecification } from 'maplibre-gl';
+import type { GeoJSONSourceSpecification, LayerSpecification, ExpressionSpecification, VectorSourceSpecification } from 'maplibre-gl';
 import type { Theme } from './themes.js';
 import type { ColorScale } from './scales.js';
+export type VectorGeometrySource = VectorSourceSpecification & { sourceLayer: string };
+export const isVectorSource = (source: unknown): source is VectorGeometrySource => !!source && typeof source === 'object' && 'type' in source && source.type === 'vector';
 export type GeoJSONData = GeoJSONSourceSpecification['data'];
 export interface LayerOptions {
   id: string;
-  source: GeoJSONData;
+  source: GeoJSONData | VectorGeometrySource;
   attribution?: string;
   /** Use a stable property for IDs when replacing viewport data. */
   promoteId?: string;
@@ -40,13 +42,15 @@ export function sourceId(id: string) { return `blocklight-source-${id}`; }
 export function renderId(id: string) { return `blocklight-layer-${id}`; }
 /** A pure style factory, also usable directly with an existing MapLibre map. */
 export function toMapLibreLayer(layer: LayerDefinition, theme: Theme): LayerSpecification {
-  const baseColor = typeof layer.color === 'string' ? layer.color : layer.color?.expression;
+  const stateColor = (value: unknown): unknown => Array.isArray(value) ? value[0] === 'get' && value.length === 2 ? ['coalesce', ['feature-state', value[1]], value] : value.map(stateColor) : value;
+  const rawColor = typeof layer.color === 'string' ? layer.color : layer.color?.expression;
+  const baseColor = isVectorSource(layer.source) ? stateColor(rawColor) as ExpressionSpecification | string | undefined : rawColor;
   const height: ExpressionSpecification = ['max', 0, ['to-number', ['get', layer.heightProperty ?? 'height_m'], 0]];
   const color = baseColor ?? (layer.kind === 'buildings'
     ? ['interpolate', ['linear'], height, 0, theme.buildingLow, 300, theme.buildingHigh] as ExpressionSpecification
     : layer.kind === 'lines' ? theme.street : layer.kind === 'polygons' ? theme.land : theme.accent);
   const interactiveColor: ExpressionSpecification = ['case', ['boolean', ['feature-state', 'selected'], false], theme.selection, ['boolean', ['feature-state', 'hover'], false], theme.accent, color];
-  const common = { id: renderId(layer.id), source: sourceId(layer.id), minzoom: layer.minzoom ?? 0, maxzoom: layer.maxzoom ?? 24, layout: { visibility: layer.visible === false ? 'none' as const : 'visible' as const } };
+  const common = { ...(isVectorSource(layer.source) ? { 'source-layer': layer.source.sourceLayer } : {}), id: renderId(layer.id), source: sourceId(layer.id), minzoom: layer.minzoom ?? 0, maxzoom: layer.maxzoom ?? 24, layout: { visibility: layer.visible === false ? 'none' as const : 'visible' as const } };
   switch (layer.kind) {
     case 'buildings': if (layer.extruded === false) return { ...common, type: 'fill', paint: { 'fill-color': interactiveColor, 'fill-opacity': 0.55 } };
       return { ...common, type: 'fill-extrusion', paint: { 'fill-extrusion-height': height, 'fill-extrusion-base': layer.baseHeightProperty ? ['min', height, ['max', 0, ['to-number', ['get', layer.baseHeightProperty], 0]]] : 0, 'fill-extrusion-color': interactiveColor, 'fill-extrusion-opacity': 1, 'fill-extrusion-vertical-gradient': true } };

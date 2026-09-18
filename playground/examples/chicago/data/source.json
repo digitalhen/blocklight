@@ -1,0 +1,9 @@
+{
+  "source": "https://data.cityofchicago.org/d/syp8-uezg",
+  "query": "https://data.cityofchicago.org/resource/syp8-uezg.json?%24where=st_name1+%3D+%27WACKER%27&%24limit=1000&%24order=bldg_id",
+  "fetchedAt": "2026-09-18T16:09:15.774Z",
+  "buildings": 51,
+  "attributes": 46,
+  "notes": "Historical source values, not verified current building information. Heights estimated as reported stories × 3 meters. Invalid/missing year or story records omitted from attributes; geometry retained.",
+  "terms": "https://www.chicago.gov/city/en/narr/foia/data_disclaimer.html"
+}

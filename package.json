@@ -12,20 +12,29 @@
     "typecheck": "tsc --noEmit",
     "test": "node --import tsx --test tests/*.test.ts tests/*.test.mjs",
     "test:browser": "playwright test",
-    "check": "npm run typecheck && npm test && npm run build",
+    "check": "npm run docs:check && npm run typecheck && npm test && npm run build",
     "data:nyc": "node scripts/data/fetch-nyc.mjs",
     "data:crime": "node scripts/data/fetch-crime.mjs",
     "data:311": "node scripts/data/fetch-311.mjs",
     "data:city": "node scripts/data/download-city.mjs buildings && node scripts/data/download-city.mjs streets && node scripts/data/download-311-city.mjs && node scripts/data/verify-city-counts.mjs && node --max-old-space-size=8192 scripts/data/build-city.mjs && npm run data:overview",
-    "data:overview": "npm run build -w blocklight && node scripts/data/build-overview.mjs"
+    "data:overview": "npm run build -w blocklight && node scripts/data/build-overview.mjs && node scripts/data/build-vector-overview.mjs",
+    "docs:build": "node scripts/docs/build.mjs",
+    "docs:check": "node scripts/docs/build.mjs --check",
+    "test:consumer": "node scripts/test-consumer.mjs",
+    "benchmark": "node scripts/benchmark.mjs",
+    "data:chicago": "node scripts/data/fetch-chicago.mjs"
   },
   "devDependencies": {
-    "typescript": "^5.9.3",
-    "tsx": "^4.20.6",
-    "@types/node": "^22.0.0",
+    "@playwright/test": "^1.58.0",
     "@types/geojson": "^7946.0.16",
+    "@types/geojson-vt": "^3.2.5",
+    "@types/node": "^22.0.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
-    "@playwright/test": "^1.58.0"
+    "geojson-vt": "^5.0.2",
+    "marked": "^18.0.13",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3",
+    "vt-pbf": "^3.1.3"
   }
 }
