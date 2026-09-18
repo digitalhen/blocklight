@@ -156,4 +156,4 @@ Render source data as text or escape it before inserting HTML. A clickable map a
 
 `npm run check` checks generated docs, TypeScript, unit tests and builds. `npm run test:browser` runs WebGL integration tests against the actual demo and example routes. `npm run test:consumer` packs the library, installs it in an isolated copy of the dataset example, typechecks, builds, and runs browser controls with the packaged worker without workspace aliases. The supported baseline is Node 22.12+ for tooling and MapLibre 6.x for rendering. No stable API compatibility is promised before 1.0; breaking preview changes must be recorded in `CHANGELOG.md`.
 
-To edit documentation, update `docs/guide.md` or the runnable example source, then run `npm run docs:build`. The website, repository README and packaged README are generated together. Do not edit their generated contents separately.
+To edit documentation, update `docs/guide.md`, `docs/readme.md`, or the runnable example source, then run `npm run docs:build`. The website, repository README and packaged README are generated together. Do not edit their generated contents separately.
