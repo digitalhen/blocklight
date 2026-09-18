@@ -28,19 +28,41 @@ npm install /absolute/path/to/blocklight-0.1.0.tgz
 npm run dev
 ```
 
-Installing the tarball replaces the example's local `file:` dependency. The examples use Vite. Their worker URL import is Vite-specific; with another bundler, serve MapLibre's worker and shared module together and call `setWorkerUrl()` before constructing a map. Keep these files matched to your installed MapLibre version.
+Installing the tarball replaces the example's local `file:` dependency. The examples use Vite. `createMap()` configures the bundled worker automatically; importing `blocklight/style.css` includes MapLibre's styles. Your bundler must emit `new URL(..., import.meta.url)` assets (as Vite does). For another asset pipeline, serve the packaged `dist/worker.js` yourself and pass `workerUrl`. No CDN or API key is required.
 
 ## Basic map
 
-This is the complete source of the basic example. Its HTML provides `#map` with an explicit height and a `#status` paragraph. Copy the whole example folder for a runnable project.
+This is the complete source of the basic example. Its HTML only provides `#map` with an explicit height. The map starts in 3D and owns its controls and status. Copy the whole example folder for a runnable project.
 
 {{example:basic}}
 
 ## Multiple datasets and color schemes
 
-This is the complete source of the dataset example. Its HTML also provides `#dataset`, `#view`, and `#details`. Housing and plumbing share one JSON URL, fetched once by the controller. Switching datasets retains the camera and selected building; refreshing the detail text after the promise resolves uses the newly active label.
+This is the complete source of the dataset example. Housing and plumbing share one JSON URL, fetched once by the controller. Dataset controls, the legend, and click details are built in. Switching datasets retains the camera and selected building, and updates the details automatically.
 
 {{example:datasets}}
+
+## Configure the complete map
+
+`createMap(config)` returns a controller immediately. Its `ready` promise resolves once the building view is installed. Loading and fetch errors appear in the built-in status; use `onError` for application reporting. Catch `ready` when awaiting it in your own workflow.
+
+| Option | Behavior |
+| --- | --- |
+| `container` | Element, CSS selector, or element ID. Give it a height. |
+| `buildings` | GeoJSON URL/collection, or `{ source, featureId, overview, detailZoom, attribution }`. Stable IDs default to `source_id`. |
+| `datasets` | Array of `{ id, label, source, join, value?, colors?, breaks? }`. Source is a JSON URL or inline data. |
+| `join` | `{ building, record, multiplicity?, unique? }`; the building and record fields must refer to the same identifier. |
+| `value` | Field to sum; omit to count records. Use `records` for a nested record array, `missing: 0` to treat absent amounts as zero. |
+| `colors` | `amber`, `teal`, `rose`, or a custom `steppedScale()`. Named palettes use three `breaks`, default `[0, 5, 20]`. |
+| `controls` | Defaults to `['datasets', 'perspective', 'legend']`; pass an empty array to omit these controls. |
+| `details` | `{ title, fields, datasets, note }` or `false`. Title/fields support dot paths into feature properties and the first matched record. For multiple records the displayed total is aggregated, while record fields come from the first record. |
+| `pitch` | Defaults to 57°; use `0` for an initial flat view. |
+
+Call `await map.setDataset(id)` or `await map.replaceDatasets(definitions, activeId)` to update data through code. After `await map.ready`, `map.setPerspective('2d')` changes the view. `map.setTheme('paper')` changes the base theme. Colors stay as explicitly configured. `map.getSelection()` reads the current selection. Call `map.destroy()` when unmounting an SPA component; page navigation cleanup is automatic.
+
+`map.datasetController` exposes the building dataset controller after `ready` for custom interfaces (and is undefined for maps without datasets). When using built-in controls, update data through `map.setDataset()` / `map.replaceDatasets()` so the UI stays synchronized.
+
+`map.engine` exposes the lower-level `CityMap` for custom layers and events; `map.engine.map` exposes MapLibre. The APIs below support applications with their own controls and detail layouts, such as the citywide showcase. Blocklight owns building identity, joins, overview transitions, and selection; MapLibre renders geometry and handles camera interaction.
 
 ## Prepare your data
 
@@ -132,6 +154,6 @@ Render source data as text or escape it before inserting HTML. A clickable map a
 
 ## Development and compatibility
 
-`npm run check` checks generated docs, TypeScript, unit tests and builds. `npm run test:browser` runs WebGL integration tests against the actual demo and example routes. `npm run test:consumer` packs the library, installs it in an isolated copy of the dataset example, typechecks, and builds without workspace aliases. The supported baseline is Node 22.12+ for tooling and MapLibre 6.x for rendering. No stable API compatibility is promised before 1.0; breaking preview changes must be recorded in `CHANGELOG.md`.
+`npm run check` checks generated docs, TypeScript, unit tests and builds. `npm run test:browser` runs WebGL integration tests against the actual demo and example routes. `npm run test:consumer` packs the library, installs it in an isolated copy of the dataset example, typechecks, builds, and runs browser controls with the packaged worker without workspace aliases. The supported baseline is Node 22.12+ for tooling and MapLibre 6.x for rendering. No stable API compatibility is promised before 1.0; breaking preview changes must be recorded in `CHANGELOG.md`.
 
 To edit documentation, update `docs/guide.md` or the runnable example source, then run `npm run docs:build`. The website, repository README and packaged README are generated together. Do not edit their generated contents separately.

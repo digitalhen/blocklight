@@ -149,7 +149,7 @@ test('citywide footprints load in all five boroughs while opening in Midtown', a
 test('documentation is linked and explains dataset switching', async ({ page }) => {
  await page.goto('/docs.html');
  await expect(page.getByRole('heading', { name: 'Multiple datasets and color schemes' })).toBeVisible();
- await expect(page.locator('main')).toContainText('layer.setDataset');
+ await expect(page.locator('main')).toContainText('map.setDataset');
 });
 
 for (const example of ['basic', 'datasets', 'chicago']) test(`standalone ${example} example loads and handles its controls`, async ({ page }) => {
@@ -158,10 +158,10 @@ for (const example of ['basic', 'datasets', 'chicago']) test(`standalone ${examp
  await expect(page.getByRole('status')).toContainText('Ready');
  await expect(page.locator('.maplibregl-canvas')).toBeVisible();
  if (example !== 'basic') {
-   await page.locator('#dataset').selectOption({ index: 1 });
-   await expect(page.locator('#dataset')).toBeEnabled();
-   await page.locator('#view').click();
-   await expect(page.locator('#view')).toHaveText('Show 3D');
+   await page.locator('[data-bl=dataset]').selectOption({ index: 1 });
+   await expect(page.locator('[data-bl=dataset]')).toBeEnabled();
+   await page.locator('[data-bl=perspective]').click();
+   await expect(page.locator('[data-bl=perspective]')).toHaveText('Show 3D');
  }
  expect(errors).toEqual([]);
 });
@@ -198,4 +198,36 @@ test('lower-level layers preserve explicit GeoJSON feature IDs without promoteId
  await expect(page.getByRole('status')).toHaveText(/Local data|Citywide data/, { timeout: 30000 });
  await page.evaluate(() => window.blocklight.addLayer({ id: 'stable-id', kind: 'points', source: { type: 'FeatureCollection', features: [{ type: 'Feature', id: 314159, properties: {}, geometry: { type: 'Point', coordinates: [-73.9815, 40.7548] } }] } }));
  await expect.poll(() => page.evaluate(() => window.blocklight.map.querySourceFeatures('blocklight-source-stable-id')[0]?.id)).toBe(314159);
+});
+
+test('configured maps preserve details across switches, escape data, and clean up independently', async ({ page }) => {
+ await page.goto('/examples/basic/');
+ await expect(page.getByRole('status')).toContainText('Ready');
+ await page.evaluate(async () => {
+   // Load the public source entry in the development test server.
+   const module = document.querySelector<HTMLScriptElement>('script[src$="main.ts"]')!;
+   const entry = await fetch(module.src).then(response => response.text());
+   const url = entry.match(/from ["']([^"']*packages\/blocklight\/src\/index.ts[^"']*)["']/)![1];
+   const { createMap } = await import(/* @vite-ignore */ url);
+   const feature = { type: 'Feature', id: 'one', properties: { source_id: 'one', height_m: 30 }, geometry: { type: 'Polygon', coordinates: [[[-73.982,40.754],[-73.981,40.754],[-73.981,40.755],[-73.982,40.755],[-73.982,40.754]]] } };
+   const host = document.createElement('div'); host.id = 'configured'; host.style.cssText = 'height:400px;position:relative'; document.body.append(host);
+   const source = [{ id: 'one', count: 0, plumbing: 7, name: '<img src=x onerror=alert(1)>' }];
+   const join = { building: 'source_id', record: 'id' };
+   const app = createMap({ container: host, center: [-73.9815,40.7548], zoom: 16, buildings: { type: 'FeatureCollection', features: [feature] }, datasets: [{ id: 'housing', label: 'Housing', source, join, value: 'count' }, { id: 'plumbing', label: 'Plumbing', source, join, value: 'plumbing', colors: 'teal' }], details: { title: 'name', fields: ['height_m'] } });
+   await app.ready;
+   app.engine.selectFeature('buildings', feature);
+   (window as unknown as { configured: typeof app }).configured = app;
+ });
+ const host = page.locator('#configured');
+ await expect(host.locator('[data-bl=details]')).toContainText('0 housing');
+ await expect(host.locator('[data-bl=details] img')).toHaveCount(0);
+ await host.getByRole('combobox').selectOption('plumbing');
+ await expect(host.locator('[data-bl=details]')).toContainText('7 plumbing');
+ await host.getByRole('button', { name: 'Show 2D' }).click();
+ await expect(host.locator('[data-bl=details]')).toContainText('7 plumbing');
+ await host.getByRole('button', { name: 'Close building details' }).click();
+ await expect(host.locator('[data-bl=details]')).toBeHidden();
+ await page.evaluate(() => { const app = (window as unknown as { configured: { destroy(): void } }).configured; app.destroy(); app.destroy(); });
+ await expect(host.locator('.blocklight-ui')).toHaveCount(0);
+ await expect(page.locator('#map .maplibregl-canvas')).toBeVisible();
 });

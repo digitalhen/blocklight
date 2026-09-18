@@ -1,3 +1,11 @@
-/* Import maplibre-gl/dist/maplibre-gl.css alongside this optional skin. */
-.maplibregl-ctrl-group { border-radius: 8px; overflow: hidden; }
-.maplibregl-ctrl-attrib { font: 10px/1.5 ui-monospace, monospace; }
+@import 'maplibre-gl/dist/maplibre-gl.css';
+.blocklight-ui{font:13px/1.5 system-ui,sans-serif;color:var(--bl-ink,#eef1f6);position:absolute;inset:0;pointer-events:none;z-index:2}
+.blocklight-ui .bl-controls,.blocklight-ui .bl-details{pointer-events:auto;background:var(--bl-background,#0c1322);border:1px solid var(--bl-border,#46516b);border-radius:8px;padding:14px;position:absolute;max-height:calc(100% - 64px);overflow:auto;box-sizing:border-box}
+.blocklight-ui .bl-controls{left:12px;bottom:28px;max-width:min(280px,calc(100% - 24px))}
+.blocklight-ui .bl-details{right:48px;top:12px;width:min(320px,calc(100% - 72px))}
+.blocklight-ui [hidden]{display:none}
+.blocklight-ui button,.blocklight-ui select{font:inherit;color:inherit;background:var(--bl-background);border:1px solid var(--bl-border);border-radius:4px;padding:7px;margin:0 5px 8px 0;cursor:pointer;max-width:100%}
+.blocklight-ui :focus-visible{outline:2px solid currentColor;outline-offset:3px}
+.blocklight-ui button:disabled,.blocklight-ui select:disabled{opacity:.5;cursor:wait}
+.blocklight-ui h2{font-size:17px;margin:4px 0 12px}.blocklight-ui p{margin:4px 0 10px}.blocklight-ui .bl-details>button{float:right}
+.blocklight-ui [data-bl=legend] strong{display:block}.blocklight-ui [data-bl=legend] span{display:inline-flex;align-items:center;gap:5px;margin:6px 10px 0 0}.blocklight-ui i{display:inline-block;width:10px;height:10px;border-radius:2px}.blocklight-ui dt{opacity:.7}.blocklight-ui dd{margin:0 0 8px;overflow-wrap:anywhere}

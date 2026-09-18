@@ -31,7 +31,7 @@
     "./style.css": "./dist/style.css"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json && cp src/style.css dist/style.css"
+    "build": "tsc -p tsconfig.json && node scripts/assets.mjs"
   },
   "peerDependencies": {
     "maplibre-gl": "^6.0.0",

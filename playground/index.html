@@ -11,74 +11,37 @@
 <div class="sidebar-footer"><span class="status-dot"></span><span id="status" role="status">Preparing the city…</span></div></aside>
 <section class="map-wrap" aria-label="Map playground"><div id="map"></div><div class="map-label"><span class="status-dot"></span>NEW YORK CITY <span>/</span> <span id="coverage-name">MIDTOWN SAMPLE</span></div><div class="data-legend" id="data-legend"><span class="eyebrow" id="dataset-label">311 HOUSING / BY BUILDING</span><h3 id="data-total">Loading requests…</h3><p id="data-coverage"></p><div id="data-scale"></div><small id="data-unmatched"></small><small>Requests are reports, not confirmed violations.</small><div class="json-actions"><a id="download-json" href="./data/311-buildings.json" download>Download JSON ↓</a><button id="load-json">Load JSON ↑</button></div><input type="file" id="json-file" accept=".json,application/json" hidden><p id="json-error" role="alert" hidden></p><a href="https://data.cityofnewyork.us/d/erm2-nwe9" target="_blank" rel="noopener">NYC 311 · Housing Preservation &amp; Development ↗</a></div><section id="building-info" class="building-info" hidden aria-labelledby="building-info-title"><div class="info-heading"><span class="eyebrow">BUILDING DETAILS</span><button id="close-building" aria-label="Close building details">×</button></div><h2 id="building-info-title"></h2><div id="building-info-body"></div></section><div class="map-bottom"><span>40.7548° N &nbsp; 73.9815° W</span><span>DRAG TO EXPLORE · CTRL + DRAG TO TILT</span></div><div id="map-error" hidden role="alert"></div></section>
 </main><footer><span>BUILT FOR THE CURIOUS.</span><span>TypeScript · MapLibre · Open source</span><span>Made of places, not pixels. ↗</span></footer>
-<div id="code"><section class="code-section"><div><div class="eyebrow">01 / SIMPLE MAP</div><h2>Start with the buildings.</h2><p>A small GeoJSON file, a camera, and a theme.<br>The simplest way to put a city on the page.</p><p class="install-note">Give #map a height and load the MapLibre CSS and worker.<br><a href="./examples/basic/">Run the basic example ↗</a><br>Local preview · package not published yet</p></div><pre><code id="basic-code">import 'maplibre-gl/dist/maplibre-gl.css';
-import { setWorkerUrl } from 'maplibre-gl';
-import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&amp;url';
-import { createCityMap, addBuildingView } from 'blocklight';
+<div id="code"><section class="code-section"><div><div class="eyebrow">01 / SIMPLE MAP</div><h2>Start with the buildings.</h2><p>A small GeoJSON file, a camera, and a theme.<br>The simplest way to put a city on the page.</p><p class="install-note">Give #map a height. Blocklight handles the worker, styles, and controls.<br><a href="./examples/basic/">Run the basic example ↗</a><br>Local preview · package not published yet</p></div><pre><code id="basic-code">import { createMap } from 'blocklight';
+import 'blocklight/style.css';
 
-setWorkerUrl(workerUrl);
-const status = document.querySelector&lt;HTMLParagraphElement&gt;('#status')!;
-const city = createCityMap({
-  container: 'map', center: [-73.9815, 40.7548], zoom: 16,
-  pitch: 57, theme: 'blueprint',
+createMap({
+  container: '#map',
+  center: [-73.9815, 40.7548], zoom: 16,
+  buildings: new URL('./data/buildings.geojson', import.meta.url).href,
+  controls: ['perspective'],
+  details: { fields: [{ key: 'height_m', label: 'Height (m)' }] },
 });
-try {
-  await addBuildingView(city, {
-    source: new URL('./data/buildings.geojson', import.meta.url).href,
-    detailZoom: 14,
-    attribution: 'NYC Open Data · building footprints',
-  });
-  status.textContent = 'Ready · zoom out for flat footprints';
-} catch (error) { status.textContent = String(error); }
-window.addEventListener('pagehide', () =&gt; city.destroy(), { once: true });
-</code></pre></section><section class="code-section"><div><div class="eyebrow">02 / DATA-DRIVEN MAP</div><h2>Bring your own data.</h2><p>Join JSON to individual buildings, switch datasets and color schemes, and keep selection across flat and 3D views.</p><p class="install-note"><a href="./examples/datasets/">Run this complete example ↗</a><br>Small local 2025 HPD fixture; no citywide build needed.</p></div><pre class="complex-code"><code id="complex-code">import 'maplibre-gl/dist/maplibre-gl.css';
-import { setWorkerUrl } from 'maplibre-gl';
-import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&amp;url';
-import { createCityMap, addBuildingDatasets, steppedScale, type DatasetDefinition } from 'blocklight';
+</code></pre></section><section class="code-section"><div><div class="eyebrow">02 / DATA-DRIVEN MAP</div><h2>Bring your own data.</h2><p>Join JSON to individual buildings, switch datasets and color schemes, and keep selection across flat and 3D views.</p><p class="install-note"><a href="./examples/datasets/">Run this complete example ↗</a><br>Small local 2025 HPD fixture; no citywide build needed.</p></div><pre class="complex-code"><code id="complex-code">import { createMap } from 'blocklight';
+import 'blocklight/style.css';
 
-setWorkerUrl(workerUrl);
-const select = document.querySelector&lt;HTMLSelectElement&gt;('#dataset')!;
-const view = document.querySelector&lt;HTMLButtonElement&gt;('#view')!;
-const details = document.querySelector&lt;HTMLParagraphElement&gt;('#details')!;
-const status = document.querySelector&lt;HTMLParagraphElement&gt;('#status')!;
-const data = {
-  url: new URL('./data/requests.json', import.meta.url).href,
-  join: { feature: 'source_id', record: 'buildingId' },
-};
-const datasets: DatasetDefinition[] = [
-  { id: 'housing', label: 'Housing requests', data: { ...data, aggregate: { op: 'sum', field: 'count' } },
-    color: steppedScale('value', [{ value: 0, color: '#7897b6' }, { value: 5, color: '#e8c98a' }, { value: 20, color: '#bc6447' }]) },
-  { id: 'plumbing', label: 'Plumbing requests', data: { ...data, aggregate: { op: 'sum', field: 'plumbing' } },
-    color: steppedScale('value', [{ value: 0, color: '#26354d' }, { value: 1, color: '#91c9ca' }, { value: 5, color: '#3989ad' }]) },
-];
-const city = createCityMap({ container: 'map', center: [-73.9815, 40.7548], zoom: 16, pitch: 57 });
-try {
-  const layer = await addBuildingDatasets(city, {
+const source = new URL('./data/requests.json', import.meta.url).href;
+const join = { building: 'source_id', record: 'buildingId' };
+
+createMap({
+  container: '#map',
+  center: [-73.9815, 40.7548], zoom: 16,
+  buildings: {
     source: new URL('./data/buildings.geojson', import.meta.url).href,
-    datasets, detailZoom: 14, attribution: 'NYC Open Data · 2025 HPD requests',
-    onError: error =&gt; { status.textContent = error.message; },
-  });
-  const renderDetails = () =&gt; {
-    const selection = city.getSelection();
-    const result = layer.getResult(selection?.feature);
-    details.textContent = !selection ? 'Click a building' : result.status === 'matched'
-      ? `${result.value} ${datasets.find(d =&gt; d.id === layer.active)!.label.toLowerCase()}`
-      : `No matched record (${result.status})`;
-  };
-  city.on('select', renderDetails);
-  select.replaceChildren(...datasets.map(d =&gt; new Option(d.label, d.id)));
-  select.disabled = false;
-  select.onchange = async () =&gt; {
-    select.disabled = true;
-    try { await layer.setDataset(select.value); renderDetails(); }
-    catch (error) { select.value = layer.active; status.textContent = String(error); }
-    finally { select.disabled = false; }
-  };
-  let three = true;
-  view.disabled = false;
-  view.onclick = () =&gt; { three = !three; layer.setPerspective(three ? '3d' : '2d'); view.textContent = three ? 'Show 2D' : 'Show 3D'; };
-  status.textContent = 'Ready · requests are reports, not confirmed violations';
-} catch (error) { status.textContent = String(error); }
-window.addEventListener('pagehide', () =&gt; city.destroy(), { once: true });
+    detailZoom: 14, attribution: 'NYC Open Data · 2025 HPD requests',
+  },
+  datasets: [
+    { id: 'housing', label: 'Housing requests', source, join, value: 'count', colors: 'amber' },
+    { id: 'plumbing', label: 'Plumbing requests', source, join, value: 'plumbing', colors: 'teal', breaks: [0, 1, 5] },
+  ],
+  details: {
+    fields: [{ key: 'height_m', label: 'Height (m)' }, 'bin'],
+    note: 'Requests are reports, not confirmed violations.',
+  },
+});
 </code></pre></section></div>
 </div><script type="module" src="/src/main.ts"></script></body></html>

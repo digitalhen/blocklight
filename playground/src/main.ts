@@ -1,7 +1,6 @@
-import './worker.js';
-import 'maplibre-gl/dist/maplibre-gl.css';
+import 'blocklight/style.css';
 import './style.css';
-import { createCityMap, addBuildingDatasets, lines, polygons, points, type ColorScale, GeoJSONTileLoader, type GeoJSONTileManifest, type Bounds, type ThemeName, type Selection } from 'blocklight';
+import { createMap, lines, polygons, points, type ColorScale, GeoJSONTileLoader, type GeoJSONTileManifest, type Bounds, type ThemeName, type Selection } from 'blocklight';
 import { nyc } from 'blocklight/nyc';
 import type { FeatureCollection } from 'geojson';
 import { parseBuildingDataset, type BuildingDataset, type BuildingRecord } from './building-data.js';
@@ -22,9 +21,6 @@ function node<K extends keyof HTMLElementTagNameMap>(tag: K, text: string, class
   return element;
 }
 async function start() {
-  const map = createCityMap({ container: 'map', city: nyc, ...initial, zoom: 14.8, mapOptions: { maxZoom: 18.5, minZoom: 10 } });
-  (window as unknown as { blocklight: typeof map }).blocklight = map;
-  map.on('error', error => { $('status').textContent = error.message; });
   let buildingManifest: GeoJSONTileManifest | undefined, streetTiles: GeoJSONTileLoader | undefined;
   let geometryVersion: string | undefined;
   let datasetFile = '311-buildings.json';
@@ -41,7 +37,6 @@ async function start() {
   }
   const [land, places] = await Promise.all(['land', 'places'].map(async name => await readJSON(`${name}.geojson`) as FeatureCollection));
   const skyline = buildingManifest ? undefined : await readJSON('buildings.geojson') as FeatureCollection;
-  const streets = streetTiles ? await streetTiles.load(viewportBounds()) : await readJSON('streets.geojson') as FeatureCollection;
   let dataset = buildingManifest ? await readJSON('311-metrics.json') as BuildingDataset : parseBuildingDataset(await readJSON(datasetFile), skyline);
   if (buildingManifest && dataset.join.geometryVersion !== geometryVersion) throw new Error('Metrics and geometry versions do not match. Rebuild city assets.');
   let uploaded = false;
@@ -59,17 +54,36 @@ async function start() {
   } }));
   const definition = () => definitions().find(d => d.id === activeId)!;
   const requestScale = (_theme: ThemeName) => definition().color as ColorScale;
-  map.addLayer(polygons({ id: 'land', source: land, interactive: false, attribution }))
-    .addLayer(lines({ id: 'streets', source: streets, interactive: false, width: 1.3, attribution }));
-  const layer = await addBuildingDatasets(map, {
-    source: buildingManifest ? './data/city-buildings.json' : skyline!,
-    overview: buildingManifest ? { type: 'vector', tiles: [new URL('./data/city/overview/{z}/{x}/{y}.pbf', location.href).href.replaceAll('%7B', '{').replaceAll('%7D', '}')], sourceLayer: 'buildings', minzoom: 8, maxzoom: 13, bounds: [-74.35, 40.44, -73.65, 40.94] } : undefined,
-    detailZoom, datasets: definitions(), attribution,
-    onChange: state => {
-      $('count').textContent = state.mode === 'overview' ? `${state.featureCount.toLocaleString()} flat building footprints${buildingManifest ? ' · citywide sample' : ''}` : `${state.featureCount.toLocaleString()} loaded${buildingManifest ? ` · ${buildingManifest.featureCount.toLocaleString()} citywide` : ' buildings'}`;
-      $('status').textContent = state.mode === 'overview' ? 'Overview · flat footprints · zoom in for 3D' : buildingManifest ? 'Citywide data · loaded for this view.' : 'Local data. No API key required.';
-    }, onError: error => { $('status').textContent = error.message; },
+  const app = createMap({
+    container: '#map', city: nyc, ...initial, zoom: 14.8,
+    mapOptions: { maxZoom: 18.5, minZoom: 10 },
+    // The showcase supplies its own editorial controls and detailed 311 panel.
+    controls: [], details: false,
+    datasets: definitions().map(d => ({
+      id: d.id, label: d.label, source: d.data.values, records: d.data.records,
+      join: { building: d.data.join.feature, record: d.data.join.record, multiplicity: d.data.join.multiplicity, unique: d.data.join.unique },
+      value: d.data.aggregate?.op === 'sum' ? d.data.aggregate.field : undefined,
+      missing: 0, property: d.data.property, colors: d.color as ColorScale,
+    })),
+    buildings: {
+      source: buildingManifest ? './data/city-buildings.json' : skyline!,
+      overview: buildingManifest ? { type: 'vector', tiles: [new URL('./data/city/overview/{z}/{x}/{y}.pbf', location.href).href.replaceAll('%7B', '{').replaceAll('%7D', '}')], sourceLayer: 'buildings', minzoom: 8, maxzoom: 13, bounds: [-74.35, 40.44, -73.65, 40.94] } : undefined,
+      detailZoom, attribution,
+      onChange: state => {
+        $('count').textContent = state.mode === 'overview' ? `${state.featureCount.toLocaleString()} flat building footprints${buildingManifest ? ' · citywide sample' : ''}` : `${state.featureCount.toLocaleString()} loaded${buildingManifest ? ` · ${buildingManifest.featureCount.toLocaleString()} citywide` : ' buildings'}`;
+        $('status').textContent = state.mode === 'overview' ? 'Overview · flat footprints · zoom in for 3D' : buildingManifest ? 'Citywide data · loaded for this view.' : 'Local data. No API key required.';
+      }, onError: error => { $('status').textContent = error.message; },
+      },
+    onError: error => { $('status').textContent = error.message; },
   });
+  const map = app.engine;
+  (window as unknown as { blocklight: typeof map }).blocklight = map;
+  map.on('error', error => { $('status').textContent = error.message; });
+  map.addLayer(polygons({ id: 'land', source: land, interactive: false, attribution }));
+  const streets = streetTiles ? await streetTiles.load(viewportBounds()) : await readJSON('streets.geojson') as FeatureCollection;
+  map.addLayer(lines({ id: 'streets', source: streets, interactive: false, width: 1.3, attribution }));
+  await app.ready;
+  const layer = app.datasetController!;
   map.addLayer(points({ id: 'places', source: places, radius: 6 }));
   function periodLabel() {
     const from = new Date(`${dataset.period.from}T00:00:00Z`);

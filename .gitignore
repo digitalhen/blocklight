@@ -15,3 +15,5 @@ playground/public/data/city.json
 
 playground/public/data/city-overview.geojson
 playground/public/data/311-metrics.json
+
+packages/blocklight/src/worker.js

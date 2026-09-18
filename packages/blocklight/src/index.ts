@@ -8,3 +8,4 @@ export { buildingPoints } from './overview.js';
 
 export { addBuildingView, type BuildingViewOptions, type BuildingViewState, type GeometrySource } from './building-view.js';
 export { matchBuildingRecords, footprintContainsPoint, type RecordMatchOptions } from './preprocess.js';
+export { createMap, defineMapDataset, type BlocklightMap, type MapConfig, type MapDataset, type MapDetails } from './create-map.js';

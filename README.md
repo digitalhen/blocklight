@@ -29,90 +29,75 @@ npm install /absolute/path/to/blocklight-0.1.0.tgz
 npm run dev
 ```
 
-Installing the tarball replaces the example's local `file:` dependency. The examples use Vite. Their worker URL import is Vite-specific; with another bundler, serve MapLibre's worker and shared module together and call `setWorkerUrl()` before constructing a map. Keep these files matched to your installed MapLibre version.
+Installing the tarball replaces the example's local `file:` dependency. The examples use Vite. `createMap()` configures the bundled worker automatically; importing `blocklight/style.css` includes MapLibre's styles. Your bundler must emit `new URL(..., import.meta.url)` assets (as Vite does). For another asset pipeline, serve the packaged `dist/worker.js` yourself and pass `workerUrl`. No CDN or API key is required.
 
 ## Basic map
 
-This is the complete source of the basic example. Its HTML provides `#map` with an explicit height and a `#status` paragraph. Copy the whole example folder for a runnable project.
+This is the complete source of the basic example. Its HTML only provides `#map` with an explicit height. The map starts in 3D and owns its controls and status. Copy the whole example folder for a runnable project.
 
 ```ts
-import 'maplibre-gl/dist/maplibre-gl.css';
-import { setWorkerUrl } from 'maplibre-gl';
-import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url';
-import { createCityMap, addBuildingView } from 'blocklight';
+import { createMap } from 'blocklight';
+import 'blocklight/style.css';
 
-setWorkerUrl(workerUrl);
-const status = document.querySelector<HTMLParagraphElement>('#status')!;
-const city = createCityMap({
-  container: 'map', center: [-73.9815, 40.7548], zoom: 16,
-  pitch: 57, theme: 'blueprint',
+createMap({
+  container: '#map',
+  center: [-73.9815, 40.7548], zoom: 16,
+  buildings: new URL('./data/buildings.geojson', import.meta.url).href,
+  controls: ['perspective'],
+  details: { fields: [{ key: 'height_m', label: 'Height (m)' }] },
 });
-try {
-  await addBuildingView(city, {
-    source: new URL('./data/buildings.geojson', import.meta.url).href,
-    detailZoom: 14,
-    attribution: 'NYC Open Data · building footprints',
-  });
-  status.textContent = 'Ready · zoom out for flat footprints';
-} catch (error) { status.textContent = String(error); }
-window.addEventListener('pagehide', () => city.destroy(), { once: true });
 ```
 
 ## Multiple datasets and color schemes
 
-This is the complete source of the dataset example. Its HTML also provides `#dataset`, `#view`, and `#details`. Housing and plumbing share one JSON URL, fetched once by the controller. Switching datasets retains the camera and selected building; refreshing the detail text after the promise resolves uses the newly active label.
+This is the complete source of the dataset example. Housing and plumbing share one JSON URL, fetched once by the controller. Dataset controls, the legend, and click details are built in. Switching datasets retains the camera and selected building, and updates the details automatically.
 
 ```ts
-import 'maplibre-gl/dist/maplibre-gl.css';
-import { setWorkerUrl } from 'maplibre-gl';
-import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url';
-import { createCityMap, addBuildingDatasets, steppedScale, type DatasetDefinition } from 'blocklight';
+import { createMap } from 'blocklight';
+import 'blocklight/style.css';
 
-setWorkerUrl(workerUrl);
-const select = document.querySelector<HTMLSelectElement>('#dataset')!;
-const view = document.querySelector<HTMLButtonElement>('#view')!;
-const details = document.querySelector<HTMLParagraphElement>('#details')!;
-const status = document.querySelector<HTMLParagraphElement>('#status')!;
-const data = {
-  url: new URL('./data/requests.json', import.meta.url).href,
-  join: { feature: 'source_id', record: 'buildingId' },
-};
-const datasets: DatasetDefinition[] = [
-  { id: 'housing', label: 'Housing requests', data: { ...data, aggregate: { op: 'sum', field: 'count' } },
-    color: steppedScale('value', [{ value: 0, color: '#7897b6' }, { value: 5, color: '#e8c98a' }, { value: 20, color: '#bc6447' }]) },
-  { id: 'plumbing', label: 'Plumbing requests', data: { ...data, aggregate: { op: 'sum', field: 'plumbing' } },
-    color: steppedScale('value', [{ value: 0, color: '#26354d' }, { value: 1, color: '#91c9ca' }, { value: 5, color: '#3989ad' }]) },
-];
-const city = createCityMap({ container: 'map', center: [-73.9815, 40.7548], zoom: 16, pitch: 57 });
-try {
-  const layer = await addBuildingDatasets(city, {
+const source = new URL('./data/requests.json', import.meta.url).href;
+const join = { building: 'source_id', record: 'buildingId' };
+
+createMap({
+  container: '#map',
+  center: [-73.9815, 40.7548], zoom: 16,
+  buildings: {
     source: new URL('./data/buildings.geojson', import.meta.url).href,
-    datasets, detailZoom: 14, attribution: 'NYC Open Data · 2025 HPD requests',
-    onError: error => { status.textContent = error.message; },
-  });
-  const renderDetails = () => {
-    const selection = city.getSelection();
-    const result = layer.getResult(selection?.feature);
-    details.textContent = !selection ? 'Click a building' : result.status === 'matched'
-      ? `${result.value} ${datasets.find(d => d.id === layer.active)!.label.toLowerCase()}`
-      : `No matched record (${result.status})`;
-  };
-  city.on('select', renderDetails);
-  select.replaceChildren(...datasets.map(d => new Option(d.label, d.id)));
-  select.disabled = false;
-  select.onchange = async () => {
-    select.disabled = true;
-    try { await layer.setDataset(select.value); renderDetails(); }
-    catch (error) { select.value = layer.active; status.textContent = String(error); }
-    finally { select.disabled = false; }
-  };
-  let three = true;
-  view.disabled = false;
-  view.onclick = () => { three = !three; layer.setPerspective(three ? '3d' : '2d'); view.textContent = three ? 'Show 2D' : 'Show 3D'; };
-  status.textContent = 'Ready · requests are reports, not confirmed violations';
-} catch (error) { status.textContent = String(error); }
-window.addEventListener('pagehide', () => city.destroy(), { once: true });
+    detailZoom: 14, attribution: 'NYC Open Data · 2025 HPD requests',
+  },
+  datasets: [
+    { id: 'housing', label: 'Housing requests', source, join, value: 'count', colors: 'amber' },
+    { id: 'plumbing', label: 'Plumbing requests', source, join, value: 'plumbing', colors: 'teal', breaks: [0, 1, 5] },
+  ],
+  details: {
+    fields: [{ key: 'height_m', label: 'Height (m)' }, 'bin'],
+    note: 'Requests are reports, not confirmed violations.',
+  },
+});
 ```
+
+## Configure the complete map
+
+`createMap(config)` returns a controller immediately. Its `ready` promise resolves once the building view is installed. Loading and fetch errors appear in the built-in status; use `onError` for application reporting. Catch `ready` when awaiting it in your own workflow.
+
+| Option | Behavior |
+| --- | --- |
+| `container` | Element, CSS selector, or element ID. Give it a height. |
+| `buildings` | GeoJSON URL/collection, or `{ source, featureId, overview, detailZoom, attribution }`. Stable IDs default to `source_id`. |
+| `datasets` | Array of `{ id, label, source, join, value?, colors?, breaks? }`. Source is a JSON URL or inline data. |
+| `join` | `{ building, record, multiplicity?, unique? }`; the building and record fields must refer to the same identifier. |
+| `value` | Field to sum; omit to count records. Use `records` for a nested record array, `missing: 0` to treat absent amounts as zero. |
+| `colors` | `amber`, `teal`, `rose`, or a custom `steppedScale()`. Named palettes use three `breaks`, default `[0, 5, 20]`. |
+| `controls` | Defaults to `['datasets', 'perspective', 'legend']`; pass an empty array to omit these controls. |
+| `details` | `{ title, fields, datasets, note }` or `false`. Title/fields support dot paths into feature properties and the first matched record. For multiple records the displayed total is aggregated, while record fields come from the first record. |
+| `pitch` | Defaults to 57°; use `0` for an initial flat view. |
+
+Call `await map.setDataset(id)` or `await map.replaceDatasets(definitions, activeId)` to update data through code. After `await map.ready`, `map.setPerspective('2d')` changes the view. `map.setTheme('paper')` changes the base theme. Colors stay as explicitly configured. `map.getSelection()` reads the current selection. Call `map.destroy()` when unmounting an SPA component; page navigation cleanup is automatic.
+
+`map.datasetController` exposes the building dataset controller after `ready` for custom interfaces (and is undefined for maps without datasets). When using built-in controls, update data through `map.setDataset()` / `map.replaceDatasets()` so the UI stays synchronized.
+
+`map.engine` exposes the lower-level `CityMap` for custom layers and events; `map.engine.map` exposes MapLibre. The APIs below support applications with their own controls and detail layouts, such as the citywide showcase. Blocklight owns building identity, joins, overview transitions, and selection; MapLibre renders geometry and handles camera interaction.
 
 ## Prepare your data
 
@@ -204,6 +189,6 @@ Render source data as text or escape it before inserting HTML. A clickable map a
 
 ## Development and compatibility
 
-`npm run check` checks generated docs, TypeScript, unit tests and builds. `npm run test:browser` runs WebGL integration tests against the actual demo and example routes. `npm run test:consumer` packs the library, installs it in an isolated copy of the dataset example, typechecks, and builds without workspace aliases. The supported baseline is Node 22.12+ for tooling and MapLibre 6.x for rendering. No stable API compatibility is promised before 1.0; breaking preview changes must be recorded in `CHANGELOG.md`.
+`npm run check` checks generated docs, TypeScript, unit tests and builds. `npm run test:browser` runs WebGL integration tests against the actual demo and example routes. `npm run test:consumer` packs the library, installs it in an isolated copy of the dataset example, typechecks, builds, and runs browser controls with the packaged worker without workspace aliases. The supported baseline is Node 22.12+ for tooling and MapLibre 6.x for rendering. No stable API compatibility is promised before 1.0; breaking preview changes must be recorded in `CHANGELOG.md`.
 
 To edit documentation, update `docs/guide.md` or the runnable example source, then run `npm run docs:build`. The website, repository README and packaged README are generated together. Do not edit their generated contents separately.
