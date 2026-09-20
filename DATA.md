@@ -111,8 +111,14 @@ The citywide overview now uses flat building footprints in standard MVT files ge
 ## Additional cities in the showcase
 
 The city selector loads bundled **downtown extracts**, not citywide coverage.
-These data stay separate from the library package. Run `npm run data:cities` to
-refresh both extracts from their public sources; no runtime API keys are needed.
+These data stay separate from the library package. Chicago and Seattle ship under
+permissive municipal open-data terms; **Atlanta's footprints ship under ODbL**, a
+share-alike licence described below, while its permit records are city open data. Run `npm run data:cities` to
+refresh every extract from its public sources, or pass city names
+(`node scripts/data/fetch-showcase-cities.mjs atlanta`) to rebuild one. No runtime
+API keys are needed. Atlanta additionally needs the `duckdb` CLI (`brew install duckdb`),
+which reads the Overture parquet and runs the permit point-in-polygon join; Chicago
+and Seattle use plain HTTP.
 Each folder under `playground/public/data/cities/` includes geometry, attributes,
 `datasets.json` (separate arrays of valid numeric records), and `source.json`
 with source URLs, bounds, queries, fetch date, counts, matching rules, and terms.
@@ -137,3 +143,44 @@ Missing measurements are omitted from that metric's array, never replaced by zer
   these are self-reported measurements, not a building-quality rating or an
   apples-to-apples comparison between uses.
   [Seattle Open Data program](https://www.seattle.gov/tech/initiatives/open-data).
+- **Atlanta:** [All Building Permits 2019-2024](https://dpcd-coaplangis.opendata.arcgis.com/datasets/655f985f43cc40b4bf2ab7bc73d2169b),
+  the City of Atlanta's Accela extract, joined to footprints from the
+  [Overture Maps buildings theme](https://docs.overturemaps.org/guides/buildings/)
+  release `2026-08-19.0`, read from its public S3 parquet. The extract covers
+  4,778 footprints across downtown and Midtown.
+
+  **Permit matching.** 3,788 permits fall inside the extract's bounds. A permit is
+  joined to a footprint only when both hold: its geocode resolved to a specific
+  address (`PointAddress` or `Subaddress`), and its point falls inside exactly one
+  footprint. 3,370 permits clear the geocode test, 3,017 of those land inside a
+  footprint, and 9 of those sit inside two overlapping footprints and are dropped.
+  **3,008 permits match 692 footprints**; the remaining 780 stay unmatched and are
+  reported in the legend. There is no nearest-building fallback and no permit is
+  counted for more than one footprint. Within a building, each permit falls in
+  exactly one of new construction, demolition, or alteration and other.
+
+  A footprint with no matched permit is **null, not zero**. Permits for it may have
+  been filed and geocoded elsewhere, so the map shows no data rather than an empty
+  building. A footprint that does have matched permits can legitimately hold a zero
+  for new construction: that is a real count, not a gap.
+
+  Permits are applications and approvals recorded by the city. They are not evidence
+  that construction happened, not violations, and not a measure of building quality.
+  Counts are not divided by floor area, occupancy, or building age.
+
+  **Heights are context, not a published measure.** The 3D view extrudes Overture
+  heights, whose provenance is kept per building and shown in the detail panel:
+  2,347 measured by [USGS 3DEP lidar](https://www.usgs.gov/3d-elevation-program),
+  1,582 estimated by Microsoft ML, 333 from OpenStreetMap contributor tags, and 516
+  with no published height, which stay flat. Heights are never mixed or averaged
+  across sources.
+
+  **Licence:** the permit records are City of Atlanta open data. The footprints and
+  heights come from the Overture buildings theme, which is
+  [ODbL](https://opendatacommons.org/licenses/odbl/), including the Microsoft ML
+  footprints within it. Redistributing the bundled geometry, or a database derived
+  from it, carries ODbL's share-alike obligation. This is the only share-alike data
+  in the repository and it does not affect the MIT-licensed code. Preserve the
+  attribution: **"© OpenStreetMap contributors. Available under the Open Database
+  License"**. Overture's attribution page does not specify separate text for the
+  USGS 3DEP heights, which are US government work.

@@ -6,6 +6,7 @@ import { nyc } from 'blocklight/nyc';
 import type { FeatureCollection } from 'geojson';
 import { parseBuildingDataset, type BuildingDataset, type BuildingRecord } from './building-data.js';
 import { datasetDefinitions } from './datasets.js';
+import { cities } from './cities.js';
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 const attribution = '<a href="https://opendata.cityofnewyork.us/">NYC Open Data</a>';
 const detailZoom = 14;
@@ -223,7 +224,7 @@ async function start() {
 }
 const citySelector = $<HTMLSelectElement>('city-select');
 const requestedCity = new URLSearchParams(location.search).get('city');
-const selectedCity = requestedCity === 'chicago' || requestedCity === 'seattle' ? requestedCity : 'nyc';
+const selectedCity = requestedCity && requestedCity in cities ? requestedCity : 'nyc';
 citySelector.value = selectedCity;
 citySelector.onchange = () => {
   const url = new URL(location.href); url.hash = '';

@@ -1,0 +1,36 @@
+{
+  "sources": [
+    "https://dpcd-coaplangis.opendata.arcgis.com/datasets/655f985f43cc40b4bf2ab7bc73d2169b",
+    "https://docs.overturemaps.org/guides/buildings/",
+    "https://www.openstreetmap.org/copyright",
+    "https://www.usgs.gov/3d-elevation-program"
+  ],
+  "permitsCsv": "https://www.arcgis.com/sharing/rest/content/items/655f985f43cc40b4bf2ab7bc73d2169b/data",
+  "release": "2026-08-19.0",
+  "parquet": "s3://overturemaps-us-west-2/release/2026-08-19.0/theme=buildings/type=building/*",
+  "bounds": [
+    -84.4,
+    33.748,
+    -84.37,
+    33.79
+  ],
+  "coverage": "Downtown and Midtown Atlanta extract",
+  "period": "Permits opened 2019 through 2024",
+  "permitsInExtract": 3788,
+  "permitsPreciseGeocode": 3370,
+  "permitsInsideAFootprint": 3017,
+  "permitsMatched": 3008,
+  "permitsUnmatched": 780,
+  "buildingsWithPermits": 692,
+  "heightsMeasured": 2347,
+  "heightsEstimated": 1582,
+  "heightsTagged": 333,
+  "heightsMissing": 516,
+  "license": "Geometry ODbL; permit records under City of Atlanta open data terms",
+  "attribution": "© OpenStreetMap contributors. Available under the Open Database License",
+  "terms": "https://opendatacommons.org/licenses/odbl/",
+  "notes": "Permit counts come from the City of Atlanta Accela extract, 2019 through 2024. A permit joins a footprint only when its geocode resolved to a specific address (PointAddress or Subaddress) and its point falls inside exactly one footprint; street-, ZIP- and city-level geocodes and points inside overlapping footprints stay unmatched. No nearest-building fallback and no duplication across footprints. A footprint with no matched permit is null, not zero: permits may have been filed and geocoded elsewhere. Permits are applications and approvals, not construction that happened, and not a measure of building quality. Footprints and heights come from the Overture buildings theme under ODbL; height provenance is per building and is context here, not a published measure.",
+  "fetchedAt": "2026-09-20T22:13:39.169Z",
+  "buildings": 4778,
+  "matchedRecords": 4778
+}

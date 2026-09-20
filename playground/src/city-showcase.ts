@@ -12,8 +12,9 @@ export async function startCity(id: string) {
     const response = await fetch(base + name); if (!response.ok) throw new Error(`Could not load ${city.name} ${name} (${response.status})`); return response.json();
   }));
   $('city-name').textContent = city.name.toUpperCase(); $('coverage-name').textContent = city.coverage;
-  $('city-description').textContent = `${city.name} · ${city.period} · downtown extract`;
-  $('layer-coverage').textContent = 'Downtown extract'; $('dataset-period').textContent = city.period;
+  const extract = city.extract;
+  $('city-description').textContent = `${city.name} · ${city.period} · ${extract}`;
+  $('layer-coverage').textContent = extract.charAt(0).toUpperCase() + extract.slice(1); $('dataset-period').textContent = city.period;
   $('map-coordinates').textContent = `${Math.abs(city.center[1]).toFixed(4)}° N  ${Math.abs(city.center[0]).toFixed(4)}° W`;
   for (const name of ['streets', 'places']) $(name).closest('label')!.hidden = true;
   $('load-json').hidden = true;
@@ -30,7 +31,7 @@ export async function startCity(id: string) {
     container: '#map', center: city.center, zoom: city.zoom, pitch: 57, bearing: -25,
     mapOptions: { minZoom: 12, maxZoom: 18.5, maxBounds: [[city.bounds[0] - .01, city.bounds[1] - .01], [city.bounds[2] + .01, city.bounds[3] + .01]] },
     controls: [], details: false,
-    buildings: { source: base + 'buildings.geojson', featureId: 'building_id', detailZoom: 14, attribution: `${city.sourceLabel} · ${id === 'seattle' ? 'Seattle GIS · 2023 outlines' : 'historical attributes'}`,
+    buildings: { source: base + 'buildings.geojson', featureId: 'building_id', detailZoom: 14, attribution: city.attribution,
       onChange: state => setFlat?.(state.mode === 'overview' || !three) },
     datasets: city.datasets.map(d => ({ ...d, source: datasets })),
     onError: error => { $('status').textContent = error.message; },
@@ -45,11 +46,12 @@ export async function startCity(id: string) {
     const values = (attributes as Record<string, unknown>[]).filter(r => typeof r[d.value!] === 'number').length;
     $('dataset-label').textContent = d.label.toUpperCase();
     $('data-total').textContent = `${values.toLocaleString()} buildings with data`;
-    $('data-coverage').textContent = `${provenance.buildings.toLocaleString()} footprints · ${city.coverage.toLowerCase()}`;
-    $('count').textContent = `${provenance.buildings.toLocaleString()} buildings · downtown extract`;
-    $('data-unmatched').textContent = id === 'seattle'
-      ? `${provenance.excludedRecords} of ${provenance.candidateRecords} reporting properties excluded: ambiguous matches, multiple buildings, or flagged reports. Unmatched buildings are shown as no data.`
-      : 'Joined by the original building ID. Missing or invalid values are shown as no data.';
+    $('data-coverage').textContent = `${provenance.buildings.toLocaleString()} footprints · ${extract}`;
+    $('count').textContent = `${provenance.buildings.toLocaleString()} buildings · ${extract}`;
+    // Each city phrases its own unmatched count. {token} reads from that city's source.json,
+    // plus withData/withoutData for the metric on screen, whose coverage can differ per dataset.
+    const facts = { ...provenance, withData: values, withoutData: provenance.buildings - values };
+    $('data-unmatched').textContent = city.unmatched.replace(/\{(\w+)\}/g, (_, key) => Number(facts[key]).toLocaleString());
     $('data-scale').replaceChildren(...(definitions.find(d => d.id === active)!.color as ColorScale).legend.map(item => {
       const key = node('span', item.label), swatch = node('i', ''); swatch.style.background = item.color; key.prepend(swatch); return key;
     }));
@@ -59,7 +61,7 @@ export async function startCity(id: string) {
     if (!selection) { $('detail').replaceChildren(node('span', 'EXPLORE THE CITY', 'eyebrow'), node('p', 'Click a building to explore its data.')); return; }
     const result = layer.getResult(selection.feature);
     const record = records.get(String(selection.feature.properties.building_id)) ?? {};
-    $('building-info-title').textContent = String(record.name ?? `Building ${selection.feature.properties.building_id}`);
+    $('building-info-title').textContent = String(record.name ?? record.class ?? 'Unnamed footprint');
     const dataset = city.datasets.find(d => d.id === active)!;
     const value = result.status === 'matched' ? result.value?.toLocaleString(undefined, { maximumFractionDigits: 2 }) ?? '—' : '—';
     $('detail').replaceChildren(node('span', 'SELECTED BUILDING', 'eyebrow'), node('p', result.status === 'matched' ? `${value} · ${dataset.label}` : 'No matched value in this extract.'));
@@ -96,5 +98,5 @@ export async function startCity(id: string) {
   $('close-building').onclick = () => { map.clearSelection(); map.map.getCanvas().focus(); };
   document.addEventListener('keydown', event => { if (event.key === 'Escape') map.clearSelection(); });
   map.on('select', details); legend(); details(null);
-  $('status').textContent = `${city.name} ready · downtown extract · click a building`;
+  $('status').textContent = `${city.name} ready · ${extract} · click a building`;
 }

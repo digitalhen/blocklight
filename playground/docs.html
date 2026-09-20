@@ -295,9 +295,11 @@ console.log(result.summary, result.unmatched);
 <p>To edit documentation, update <code>docs/guide.md</code>, <code>docs/readme.md</code>, or the runnable example source, then run <code>npm run docs:build</code>. The website, repository README and packaged README are generated together. Do not edit their generated contents separately.</p>
 <h2>Exploring other cities</h2>
 <p>The <a href="./">playground</a> opens in New York. Its city selector also offers
-<a href="./?city=chicago">Chicago</a> (construction year and reported stories) and
-<a href="./?city=seattle">Seattle</a> (2024 site energy and emissions intensity).
-Chicago and Seattle are labeled downtown extracts. Each city has its own camera,
+<a href="./?city=chicago">Chicago</a> (construction year and reported stories),
+<a href="./?city=seattle">Seattle</a> (2024 site energy and emissions intensity), and
+<a href="./?city=atlanta">Atlanta</a> (building permits filed 2019 through 2024).
+Chicago, Seattle, and Atlanta are labeled extracts; Atlanta&#39;s covers
+downtown and Midtown. Each city has its own camera,
 geometry, dataset definitions, units, palettes, and source notes. Switching cities
 opens a fresh map; switching datasets keeps the selected building.</p>
 <p>The same configuration works with any city. For example, with the Seattle files
@@ -321,7 +323,13 @@ from <code>playground/public/data/cities/seattle/</code> copied into your app&#3
 omitted from that metric instead of becoming zero. The importer establishes safe
 one-building joins before writing the portable JSON. Seattle&#39;s multi-building,
 ambiguous, or flagged records are excluded; the legend states how many. Heights
-are estimates from reported floors; unknown heights stay flat. See
+are estimates from reported floors; unknown heights stay flat. Atlanta joins city
+permit records to footprints by point-in-polygon rather than by a shared ID: a
+permit counts for a footprint only when its geocode resolved to a specific address
+and its point falls inside exactly one footprint, so 3,008 of the 3,788 permits in
+that extract match and the rest are reported unmatched. Its footprints come from
+Overture Maps under ODbL and carry a share-alike obligation the other extracts do
+not. See
 <a href="https://github.com/digitalhen/blocklight/blob/main/DATA.md">DATA.md</a> for methodology
 and upstream terms. Regenerate with <code>npm run data:cities</code>.</p>
 </main></body></html>

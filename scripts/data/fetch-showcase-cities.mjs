@@ -1,4 +1,8 @@
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { execFile } from 'node:child_process';
+import { tmpdir } from 'node:os';
+import { join as joinPath } from 'node:path';
+import { promisify } from 'node:util';
 
 const root = new URL('../../playground/public/data/cities/', import.meta.url);
 async function json(url) {
@@ -79,5 +83,125 @@ async function seattle() {
   const buildings = footprints.map(f => ({ type: 'Feature', id: String(f.properties.OBJECTID), properties: { building_id: String(f.properties.OBJECTID), height_m: (byId.get(String(f.properties.OBJECTID))?.floors ?? 0) * 3 }, geometry: f.geometry }));
   await save('seattle', buildings, records, ['eui', 'ghg'], { sources: ['https://data.seattle.gov/d/teqw-tu6e', 'https://data-seattlecitygis.opendata.arcgis.com/datasets/SeattleCityGIS::building-outlines-2023'], energyQuery: energyUrl.href, geometryService: service, bounds, coverage: 'Downtown Seattle extract', reportingYear: 2024, candidateRecords: rows.length, excludedRecords: rows.length - records.length, terms: 'https://www.seattle.gov/tech/initiatives/open-data', notes: '2024 self-reported energy data; 2023 outlines. Only compliant reports with No Issue, one reported building, one record per parcel, and exactly one footprint across the entire parcel are joined. No nearest-building guesses. Heights estimated as floors × 3 meters for matched records; unknown heights stay flat. EUI: annual kBtu/ft². GHG intensity: annual kgCO₂e/ft². Different property uses are not directly comparable; no quality score is implied.' });
 }
-await chicago();
-await seattle();
+
+// Atlanta joins two public sources: city permit records supply the measures, Overture
+// supplies footprints and their heights. duckdb reads Overture's S3 parquet and runs the
+// point-in-polygon join without downloading the planet.
+const OVERTURE_RELEASE = '2026-08-19.0';
+const overtureParquet = `s3://overturemaps-us-west-2/release/${OVERTURE_RELEASE}/theme=buildings/type=building/*`;
+const PERMITS_ITEM = '655f985f43cc40b4bf2ab7bc73d2169b';
+const permitsCsvUrl = `https://www.arcgis.com/sharing/rest/content/items/${PERMITS_ITEM}/data`;
+const run = promisify(execFile);
+// Overture names the dataset that supplied each property; keep the distinction visible.
+const heightSources = { 'USGS Lidar': 'USGS 3DEP lidar (measured)', 'Microsoft ML Buildings': 'Microsoft ML estimate' };
+
+async function duckdb(sql) {
+  try {
+    await run('duckdb', ['-c', sql], { maxBuffer: 1 << 28 });
+  } catch (error) {
+    if (error.code === 'ENOENT') throw new Error('Atlanta needs the duckdb CLI: brew install duckdb');
+    throw error;
+  }
+}
+
+const round = value => Math.round(value * 1e6) / 1e6;
+const trim = geometry => JSON.parse(JSON.stringify(geometry, (_, v) => typeof v === 'number' ? round(v) : v));
+async function atlanta() {
+  const bounds = [-84.4, 33.748, -84.37, 33.79];
+  const [minLon, minLat, maxLon, maxLat] = bounds;
+  const dir = await mkdtemp(joinPath(tmpdir(), 'blocklight-atlanta-'));
+  const at = name => joinPath(dir, name);
+
+  const response = await fetch(permitsCsvUrl, { signal: AbortSignal.timeout(300000) });
+  if (!response.ok) throw new Error(`${response.status}: Atlanta permits CSV`);
+  await writeFile(at('permits.csv'), Buffer.from(await response.arrayBuffer()));
+
+  // Only geocodes resolved to a specific address are eligible; a street- or ZIP-level point
+  // says nothing about which building filed the permit. A permit inside two overlapping
+  // footprints stays unmatched rather than being counted twice.
+  await duckdb(`INSTALL spatial; LOAD spatial; INSTALL httpfs; LOAD httpfs; SET s3_region='us-west-2';
+SET preserve_insertion_order=false;
+CREATE TABLE b AS SELECT id, height, num_floors, names.primary AS name, class, subtype,
+  list_filter(sources, s -> s.property = '/properties/height')[1].dataset AS height_source, geometry
+FROM read_parquet('${overtureParquet}', hive_partitioning=1)
+WHERE bbox.xmin < ${maxLon} AND bbox.xmax > ${minLon} AND bbox.ymin < ${maxLat} AND bbox.ymax > ${minLat};
+CREATE TABLE p AS SELECT "RECORD ID" AS permit, "RECORD TYPE" AS rtype, "RECORD STATUS" AS status,
+  addr_type, CAST(TRY(strptime("DATE OPENED", '%-m/%-d/%Y')) AS DATE) AS opened,
+  ST_Point(TRY_CAST(longitude AS DOUBLE), TRY_CAST(latitude AS DOUBLE)) AS geom
+FROM read_csv('${at('permits.csv')}', header=true, all_varchar=true)
+WHERE TRY_CAST(longitude AS DOUBLE) BETWEEN ${minLon} AND ${maxLon}
+  AND TRY_CAST(latitude AS DOUBLE) BETWEEN ${minLat} AND ${maxLat};
+CREATE TABLE precise AS SELECT * FROM p WHERE addr_type IN ('PointAddress','Subaddress');
+CREATE TABLE hits AS SELECT precise.permit, precise.rtype, precise.opened, b.id AS bid
+  FROM precise JOIN b ON ST_Within(precise.geom, b.geometry);
+CREATE TABLE matched AS SELECT * FROM hits WHERE permit IN (SELECT permit FROM hits GROUP BY 1 HAVING count(*) = 1);
+COPY (SELECT bid AS id, count(*) AS permits,
+    count(*) FILTER (WHERE rtype ILIKE '%New%') AS newConstruction,
+    count(*) FILTER (WHERE rtype ILIKE '%Demolition%') AS demolition,
+    count(*) FILTER (WHERE rtype NOT ILIKE '%New%' AND rtype NOT ILIKE '%Demolition%') AS alteration,
+    mode(rtype) AS topType,
+    max(CASE WHEN opened BETWEEN DATE '2019-01-01' AND DATE '2025-12-31' THEN opened END) AS latestPermit
+  FROM matched GROUP BY 1) TO '${at('permits.json')}' (FORMAT JSON, ARRAY true);
+COPY (SELECT id, height, num_floors, name, class, subtype, height_source,
+    ST_AsGeoJSON(geometry) AS geom FROM b) TO '${at('buildings.json')}' (FORMAT JSON, ARRAY true);
+COPY (SELECT (SELECT count(*) FROM p) AS inExtract, (SELECT count(*) FROM precise) AS preciseGeocode,
+    (SELECT count(DISTINCT permit) FROM hits) AS insideAFootprint, (SELECT count(*) FROM matched) AS matched)
+  TO '${at('summary.json')}' (FORMAT JSON, ARRAY true);`);
+
+  const [rows, permits, [summary]] = await Promise.all(['buildings.json', 'permits.json', 'summary.json']
+    .map(async name => JSON.parse(await readFile(at(name), 'utf8'))));
+  await rm(dir, { recursive: true, force: true });
+
+  const byBuilding = new Map(permits.map(r => [String(r.id), r]));
+  // Every footprint gets a record so any building can be inspected, but a footprint with no
+  // matched permit keeps null: no permit was linked here, which is not a filing count of zero.
+  const records = rows.map(row => {
+    const id = String(row.id), permit = byBuilding.get(id), height = numeric(row.height), floors = numeric(row.num_floors);
+    return {
+      id,
+      name: row.name ?? null,
+      class: row.subtype ? [row.subtype, row.class].filter(Boolean).join(' · ') : row.class ?? null,
+      permits: permit?.permits ?? null,
+      newConstruction: permit?.newConstruction ?? null,
+      demolition: permit?.demolition ?? null,
+      alteration: permit?.alteration ?? null,
+      topType: permit?.topType ?? null,
+      latestPermit: permit?.latestPermit ?? null,
+      height: height > 0 ? round(height) : null,
+      floors: floors > 0 ? floors : null,
+      heightSource: height > 0 ? heightSources[row.height_source] ?? 'OpenStreetMap contributor tag' : null,
+      match: permit ? 'Permit point falls inside this footprint and no other.' : 'No permit matched to this footprint.',
+    };
+  });
+  const byId = new Map(records.map(r => [r.id, r]));
+  const buildings = rows.map(row => ({
+    type: 'Feature', id: String(row.id),
+    properties: { building_id: String(row.id), height_m: byId.get(String(row.id)).height ?? 0 },
+    geometry: trim(typeof row.geom === 'string' ? JSON.parse(row.geom) : row.geom),
+  }));
+  const withPermits = records.filter(r => r.permits != null).length;
+  if (summary.matched !== permits.reduce((total, r) => total + r.permits, 0)) throw new Error('Atlanta permit totals do not reconcile');
+  await save('atlanta', buildings, records, ['permits', 'newConstruction'], {
+    sources: [`https://dpcd-coaplangis.opendata.arcgis.com/datasets/${PERMITS_ITEM}`, 'https://docs.overturemaps.org/guides/buildings/', 'https://www.openstreetmap.org/copyright', 'https://www.usgs.gov/3d-elevation-program'],
+    permitsCsv: permitsCsvUrl, release: OVERTURE_RELEASE, parquet: overtureParquet, bounds,
+    coverage: 'Downtown and Midtown Atlanta extract', period: 'Permits opened 2019 through 2024',
+    permitsInExtract: summary.inExtract, permitsPreciseGeocode: summary.preciseGeocode,
+    permitsInsideAFootprint: summary.insideAFootprint, permitsMatched: summary.matched,
+    permitsUnmatched: summary.inExtract - summary.matched, buildingsWithPermits: withPermits,
+    heightsMeasured: records.filter(r => r.heightSource?.startsWith('USGS')).length,
+    heightsEstimated: records.filter(r => r.heightSource?.startsWith('Microsoft')).length,
+    heightsTagged: records.filter(r => r.heightSource && !r.heightSource.startsWith('USGS') && !r.heightSource.startsWith('Microsoft')).length,
+    heightsMissing: records.filter(r => r.height == null).length,
+    license: 'Geometry ODbL; permit records under City of Atlanta open data terms',
+    attribution: '© OpenStreetMap contributors. Available under the Open Database License',
+    terms: 'https://opendatacommons.org/licenses/odbl/',
+    notes: 'Permit counts come from the City of Atlanta Accela extract, 2019 through 2024. A permit joins a footprint only when its geocode resolved to a specific address (PointAddress or Subaddress) and its point falls inside exactly one footprint; street-, ZIP- and city-level geocodes and points inside overlapping footprints stay unmatched. No nearest-building fallback and no duplication across footprints. A footprint with no matched permit is null, not zero: permits may have been filed and geocoded elsewhere. Permits are applications and approvals, not construction that happened, and not a measure of building quality. Footprints and heights come from the Overture buildings theme under ODbL; height provenance is per building and is context here, not a published measure.',
+  });
+  console.log(`atlanta: ${summary.matched} of ${summary.inExtract} permits matched to ${withPermits} footprints`);
+}
+
+const builders = { chicago, seattle, atlanta };
+const requested = process.argv.slice(2);
+const unknown = requested.filter(name => !(name in builders));
+if (unknown.length) throw new Error(`Unknown city: ${unknown.join(', ')}. Known: ${Object.keys(builders).join(', ')}`);
+for (const name of requested.length ? requested : Object.keys(builders)) await builders[name]();

@@ -238,9 +238,11 @@ To edit documentation, update `docs/guide.md`, `docs/readme.md`, or the runnable
 ## Exploring other cities
 
 The [playground](./) opens in New York. Its city selector also offers
-[Chicago](./?city=chicago) (construction year and reported stories) and
-[Seattle](./?city=seattle) (2024 site energy and emissions intensity).
-Chicago and Seattle are labeled downtown extracts. Each city has its own camera,
+[Chicago](./?city=chicago) (construction year and reported stories),
+[Seattle](./?city=seattle) (2024 site energy and emissions intensity), and
+[Atlanta](./?city=atlanta) (building permits filed 2019 through 2024).
+Chicago, Seattle, and Atlanta are labeled extracts; Atlanta's covers
+downtown and Midtown. Each city has its own camera,
 geometry, dataset definitions, units, palettes, and source notes. Switching cities
 opens a fresh map; switching datasets keeps the selected building.
 
@@ -268,6 +270,12 @@ createMap({
 omitted from that metric instead of becoming zero. The importer establishes safe
 one-building joins before writing the portable JSON. Seattle's multi-building,
 ambiguous, or flagged records are excluded; the legend states how many. Heights
-are estimates from reported floors; unknown heights stay flat. See
+are estimates from reported floors; unknown heights stay flat. Atlanta joins city
+permit records to footprints by point-in-polygon rather than by a shared ID: a
+permit counts for a footprint only when its geocode resolved to a specific address
+and its point falls inside exactly one footprint, so 3,008 of the 3,788 permits in
+that extract match and the rest are reported unmatched. Its footprints come from
+Overture Maps under ODbL and carry a share-alike obligation the other extracts do
+not. See
 [DATA.md](https://github.com/digitalhen/blocklight/blob/main/DATA.md) for methodology
 and upstream terms. Regenerate with `npm run data:cities`.

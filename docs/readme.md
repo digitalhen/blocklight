@@ -45,13 +45,14 @@ Open the URL printed by Vite:
 | `/` | New York: themes, 311 datasets, building details, and JSON upload |
 | `/?city=chicago` | Downtown Chicago: construction year and reported stories |
 | `/?city=seattle` | Downtown Seattle: 2024 energy use and emissions intensity |
+| `/?city=atlanta` | Downtown and Midtown Atlanta: building height and reported floors |
 | `/examples/basic/` | A small map of building footprints |
 | `/examples/datasets/` | Housing and plumbing requests with separate color scales |
 | `/examples/chicago/` | Chicago buildings colored by construction year or reported stories |
 | `/docs.html` | Configuration, data preparation, and API reference |
 | `/react.html` | React lifecycle example |
 
-Use the city selector above the map to switch between New York, Chicago, and Seattle. Chicago and Seattle are bundled downtown extracts, with reproducible import scripts and source notes in [DATA.md](https://github.com/digitalhen/blocklight/blob/main/DATA.md).
+Use the city selector above the map to switch between New York, Chicago, Seattle, and Atlanta. Chicago, Seattle, and Atlanta are bundled downtown extracts, with reproducible import scripts and source notes in [DATA.md](https://github.com/digitalhen/blocklight/blob/main/DATA.md). The Atlanta extract is Overture Maps data under ODbL, a share-alike licence; the others use permissive municipal terms.
 
 The examples include small local fixtures. A fresh checkout runs without downloading a city. The showcase falls back to the Midtown sample when citywide assets are absent.
 

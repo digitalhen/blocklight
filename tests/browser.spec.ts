@@ -239,7 +239,9 @@ test('configured maps preserve details across switches, escape data, and clean u
  await expect(page.locator('#map .maplibregl-canvas')).toBeVisible();
 });
 
-for (const city of ['chicago', 'seattle']) test(`${city} showcase switches metrics and preserves selected buildings between perspectives`, async ({ page }) => {
+// Each city hands off to the next, ending at NYC, so the selector is exercised across all of them.
+const nextCity: Record<string, string> = { chicago: 'seattle', seattle: 'atlanta', atlanta: 'nyc' };
+for (const city of ['chicago', 'seattle', 'atlanta']) test(`${city} showcase switches metrics and preserves selected buildings between perspectives`, async ({ page }) => {
  const errors: string[] = []; page.on('pageerror', e => errors.push(e.message));
  const requests: string[] = []; page.on('request', r => requests.push(r.url()));
  await page.goto(`/?city=${city}`);
@@ -276,8 +278,9 @@ for (const city of ['chicago', 'seattle']) test(`${city} showcase switches metri
  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
  const legend = await page.locator('#data-legend').boundingBox(), map = await page.locator('#map').boundingBox();
  expect(legend!.y).toBeGreaterThanOrEqual(map!.y + map!.height - 1);
- await page.getByRole('combobox', { name: 'City', exact: true }).selectOption(city === 'chicago' ? 'seattle' : 'nyc');
- await expect(page.locator('#status')).toContainText(city === 'chicago' ? 'Seattle ready' : /Local data|Citywide data/, { timeout: 30000 });
+ const next = nextCity[city];
+ await page.getByRole('combobox', { name: 'City', exact: true }).selectOption(next);
+ await expect(page.locator('#status')).toContainText(next === 'nyc' ? /Local data|Citywide data/ : new RegExp(`${next[0].toUpperCase()}${next.slice(1)} ready`), { timeout: 30000 });
  expect(errors).toEqual([]);
 });
 
