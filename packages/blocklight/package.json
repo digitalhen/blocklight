@@ -1,6 +1,6 @@
 {
   "name": "blocklight",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Beautiful cities. Your data. A composable city mapping toolkit for MapLibre.",
   "type": "module",
   "license": "MIT",
