@@ -137,6 +137,10 @@ The dataset selector, perspective button, legend, and details panel are built in
 | `controls: ['datasets', 'perspective', 'legend']` | Choose which built-in controls to show |
 | `buildings: { source, featureId, heightProperty }` | Use your own footprint schema; defaults are `source_id` and `height_m` |
 | `buildings: { source, overview, detailZoom }` | Use separate overview geometry and viewport-loaded detail |
+| `terrain: { source, exaggeration }` | Raise the map onto 3D elevation, from a `raster-dem` source you supply |
+| `terrain: { source, mask }` | Cover relief where the elevation model is unreliable, such as water; `outsideMask()` builds one from a landmass |
+| `buildings: { source, heightProperty }` | Footprints reporting no height are draped onto the terrain rather than buried by it |
+| `buildings: { source, elevationProperty }` | Start each building at its own ground elevation instead of at zero |
 
 Keep the returned controller when you want to drive the map from your application:
 
@@ -146,6 +150,7 @@ await map.ready;
 await map.setDataset('plumbing');
 map.setPerspective('2d');
 map.setTheme('paper');
+map.setTerrain(null); // or pass a raster-dem source to raise the map onto elevation
 
 const selection = map.getSelection();
 

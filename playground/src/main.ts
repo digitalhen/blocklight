@@ -1,6 +1,7 @@
 import 'blocklight/style.css';
+import { wireTerrainToggle } from './terrain.js';
 import './style.css';
-import { createMap, renderId, lines, polygons, points, type ColorScale, GeoJSONTileLoader, type GeoJSONTileManifest, type Bounds, type ThemeName, type Selection } from 'blocklight';
+import { createMap, renderId, lines, polygons, points, outsideMask, type ColorScale, GeoJSONTileLoader, type GeoJSONTileManifest, type Bounds, type ThemeName, type Selection } from 'blocklight';
 import { nyc } from 'blocklight/nyc';
 import type { FeatureCollection } from 'geojson';
 import { parseBuildingDataset, type BuildingDataset, type BuildingRecord } from './building-data.js';
@@ -54,6 +55,7 @@ async function start() {
   } }));
   const definition = () => definitions().find(d => d.id === activeId)!;
   const requestScale = (_theme: ThemeName) => definition().color as ColorScale;
+  let setFlat: ((flat: boolean) => void) | undefined;
   const app = createMap({
     container: '#map', city: nyc, ...initial, zoom: 14.8,
     mapOptions: { maxZoom: 18.5, minZoom: 10 },
@@ -72,6 +74,8 @@ async function start() {
       onChange: state => {
         $('count').textContent = state.mode === 'overview' ? `${state.featureCount.toLocaleString()} flat building footprints${buildingManifest ? ' · citywide sample' : ''}` : `${state.featureCount.toLocaleString()} loaded${buildingManifest ? ` · ${buildingManifest.featureCount.toLocaleString()} citywide` : ' buildings'}`;
         $('status').textContent = state.mode === 'overview' ? 'Overview · flat footprints · zoom in for 3D' : buildingManifest ? 'Citywide data · loaded for this view.' : 'Local data. No API key required.';
+        // Zoomed out shows flat footprints, so terrain stands down until the 3D buildings return.
+        setFlat?.(state.mode === 'overview' || !threeDimensional);
       }, onError: error => { $('status').textContent = error.message; },
       },
     onError: error => { $('status').textContent = error.message; },
@@ -112,7 +116,11 @@ async function start() {
   }
   function perspective(three: boolean, resetCamera = false) {
     threeDimensional = three;
+    const flat = !three || layer.state.mode === 'overview';
+    // Terrain changes lurch the camera mid-ease, so drop it first and restore it after.
+    if (flat) setFlat?.(true);
     layer.setPerspective(three ? '3d' : '2d');
+    if (!flat) map.map.once('moveend', () => setFlat?.(false));
     if (resetCamera) map.map.easeTo({ center: initial.center, zoom: 14.8, pitch: three ? initial.pitch : 0, bearing: three ? initial.bearing : 0, duration: 700 });
     for (const [id, active] of [['view3d', three], ['view2d', !three]] as const) { $(id).classList.toggle('active', active); $(id).setAttribute('aria-pressed', String(active)); }
   }
@@ -182,6 +190,8 @@ async function start() {
   $('buildings').onchange = () => layer.setVisible($<HTMLInputElement>('buildings').checked);
   for (const id of ['streets', 'places']) $(id).onchange = () => map.setVisible(id, $<HTMLInputElement>(id).checked);
   $('view3d').onclick = () => perspective(true); $('view2d').onclick = () => perspective(false);
+  // The boroughs are the only trustworthy ground here: mask the rivers and the harbour.
+  setFlat = wireTerrainToggle(map, 'Real ground beneath the city', outsideMask(land, [-74.5, 40.3, -73.4, 41.1]));
   $('reset').onclick = () => perspective(threeDimensional, true);
   $('close-building').onclick = () => { map.clearSelection(); map.map.getCanvas().focus(); };
   document.addEventListener('keydown', event => { if (event.key === 'Escape') map.clearSelection(); });

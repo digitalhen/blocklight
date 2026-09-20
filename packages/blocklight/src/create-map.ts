@@ -1,6 +1,6 @@
 import { getWorkerUrl, setWorkerUrl } from 'maplibre-gl';
-import { createCityMap, type CityMapOptions } from './map.js';
-import { addBuildingView, type BuildingViewOptions, type GeometrySource } from './building-view.js';
+import { createCityMap, type CityMapOptions, type TerrainOptions } from './map.js';
+import { addBuildingView, type BuildingViewOptions, type BuildingViewState, type GeometrySource } from './building-view.js';
 import { addBuildingDatasets, type DatasetDefinition, type DatasetConfig } from './dataset.js';
 import { steppedScale, type ColorScale } from './scales.js';
 import { resolveTheme, type ThemeName, type Theme } from './themes.js';
@@ -29,7 +29,7 @@ export interface MapConfig extends CityMapOptions {
   buildings: GeometrySource | Omit<BuildingViewOptions, 'transform' | 'signal'>;
   datasets?: MapDataset[];
   activeDataset?: string;
-  controls?: readonly ('datasets' | 'perspective' | 'legend')[];
+  controls?: readonly ('datasets' | 'perspective' | 'terrain' | 'legend')[];
   details?: MapDetails | false;
   /** Override the bundled worker URL for deployments with a custom asset pipeline. */
   workerUrl?: string;
@@ -74,17 +74,29 @@ export function createMap(options: MapConfig) {
   const status = element('p', 'Loading…'); status.setAttribute('role', 'status'); status.dataset.bl = 'status'; controls.append(status);
   const select = element('select'); select.setAttribute('aria-label', 'Dataset'); select.dataset.bl = 'dataset'; select.disabled = true;
   const view = element('button', 'Show 2D'); view.type = 'button'; view.disabled = true; view.dataset.bl = 'perspective';
+  const relief = element('button', 'Hide terrain'); relief.type = 'button'; relief.dataset.bl = 'terrain';
   const legend = element('div'); legend.dataset.bl = 'legend';
   const panel = element('section'); panel.className = 'bl-details'; panel.dataset.bl = 'details'; panel.setAttribute('aria-label', 'Building details'); panel.setAttribute('aria-live', 'polite'); panel.hidden = true; root.append(panel);
-  const requested = options.controls ?? ['datasets', 'perspective', 'legend'];
+  const requested = options.controls ?? ['datasets', 'perspective', 'terrain', 'legend'];
   if (!requested.length && options.details === false) root.hidden = true;
   if (requested.includes('datasets') && definitions.length) controls.append(select);
   if (requested.includes('perspective')) controls.append(view);
+  // Only offer the toggle when the caller configured an elevation source to toggle back on.
+  if (requested.includes('terrain') && options.terrain) controls.append(relief);
   if (requested.includes('legend')) controls.append(legend);
   let building: Awaited<ReturnType<typeof addBuildingView>> | undefined;
   let data: Awaited<ReturnType<typeof addBuildingDatasets>> | undefined;
   let destroyed = false, switching = 0;
   let perspective: '2d' | '3d' = options.pitch === 0 ? '2d' : '3d';
+  /*
+   * Terrain belongs to the extruded 3D buildings alone. The 2D plan and the zoomed-out
+   * overview are flat fills, and MapLibre drapes flat ground layers through an offscreen
+   * texture that visibly blurs and dims them — for no gain, since neither shows elevation.
+   * `wanted` is what the caller asked for; `terrainOn` is what is actually installed.
+   */
+  let wanted: TerrainOptions | null = options.terrain ?? null;
+  let terrainOn = !!options.terrain;
+  let overview = false;
   const geometry = typeof options.buildings === 'object' && 'source' in options.buildings ? options.buildings : { source: options.buildings as GeometrySource };
   if (geometry.extruded === false) perspective = '2d';
   const report = (value: unknown) => { if (destroyed) return; const error = value instanceof Error ? value : new Error(String(value)); status.textContent = error.message; options.onError?.(error); };
@@ -93,6 +105,8 @@ export function createMap(options: MapConfig) {
     select.replaceChildren(...definitions.map(d => new Option(d.label, d.id)));
     select.value = data?.active ?? ''; select.disabled = !data || switching > 0;
     view.disabled = !building; view.textContent = perspective === '3d' ? 'Show 2D' : 'Show 3D';
+    relief.disabled = !building || !terrainFits();
+    relief.textContent = wanted ? 'Hide terrain' : 'Show terrain'; relief.setAttribute('aria-pressed', String(!!wanted));
     const active = definitions.find(d => d.id === data?.active);
     legend.replaceChildren();
     if (active) {
@@ -131,7 +145,10 @@ export function createMap(options: MapConfig) {
   const off = engine.on('select', render);
   const offError = engine.on('error', report);
   const ready = (async () => {
-    const config = { detailZoom: 14, ...geometry, extruded: perspective === '3d', signal: lifetime.signal, onError: report };
+    const config = {
+      detailZoom: 14, ...geometry, extruded: perspective === '3d', signal: lifetime.signal, onError: report,
+      onChange: (state: BuildingViewState) => { overview = state.mode === 'overview'; syncTerrain(); render(); geometry.onChange?.(state); },
+    };
     building = definitions.length ? data = await addBuildingDatasets(engine, { ...config, datasets: definitions, active: options.activeDataset }) : await addBuildingView(engine, config);
     if (destroyed) { building.dispose(); return; }
     status.textContent = 'Ready · click a building'; render();
@@ -152,13 +169,38 @@ export function createMap(options: MapConfig) {
     try { await data.replaceDatasets(next, active ?? data.active); definitions = next; datasets = nextDatasets; }
     finally { switching--; render(); }
   }
-  function setPerspective(value: '2d' | '3d') { if (!building || destroyed) throw new Error('Await map.ready before changing perspective.'); perspective = value; building.setPerspective(value); render(); }
+  function setPerspective(value: '2d' | '3d') {
+    if (!building || destroyed) throw new Error('Await map.ready before changing perspective.');
+    perspective = value;
+    /*
+     * Changing terrain while a camera ease is running makes MapLibre recompute zoom from the
+     * camera's altitude over the mesh, which lurches the view. Drop terrain before the ease
+     * starts, and put it back only once the camera has settled.
+     */
+    if (value === '2d') { syncTerrain(); building.setPerspective(value); }
+    else { building.setPerspective(value); engine.map.once('moveend', () => { if (!destroyed) { syncTerrain(); render(); } }); }
+    render();
+  }
+  /** True only while the extruded 3D buildings are the representation on screen. */
+  function terrainFits() { return perspective === '3d' && !overview; }
+  function syncTerrain() {
+    const next = !!wanted && terrainFits();
+    if (next === terrainOn) return;
+    terrainOn = next;
+    engine.setTerrain(next ? wanted : null);
+  }
+  /** Raise the map onto elevation, or pass null for a flat ground plane. */
+  function setTerrain(next: TerrainOptions | null) {
+    if (destroyed) throw new Error('Map has been destroyed.');
+    wanted = next; syncTerrain(); render();
+  }
   select.onchange = () => { void setDataset(select.value).catch(report); };
   view.onclick = () => setPerspective(perspective === '3d' ? '2d' : '3d');
+  relief.onclick = () => { if (options.terrain) setTerrain(wanted ? null : options.terrain); };
   root.addEventListener('keydown', event => { if (event.key === 'Escape') engine.clearSelection(); });
   function destroy() { if (destroyed) return; destroyed = true; lifetime.abort(); off(); offError(); root.remove(); window.removeEventListener('pagehide', destroy); engine.destroy(); }
   window.addEventListener('pagehide', destroy);
   engine.map.once('remove', destroy);
-  return { engine, ready, get datasetController() { return data; }, setDataset, replaceDatasets, setPerspective, setTheme, getSelection: () => engine.getSelection(), clearSelection: () => engine.clearSelection(), destroy };
+  return { engine, ready, get datasetController() { return data; }, get hasTerrain() { return terrainOn; }, setDataset, replaceDatasets, setPerspective, setTerrain, setTheme, getSelection: () => engine.getSelection(), clearSelection: () => engine.clearSelection(), destroy };
 }
 export type BlocklightMap = ReturnType<typeof createMap>;

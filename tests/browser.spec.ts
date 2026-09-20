@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { readFileSync, existsSync } from 'node:fs';
 import type { CityMap } from '../packages/blocklight/src/map.js';
+import { themes } from '../packages/blocklight/src/themes.js';
 declare global { interface Window { blocklight: CityMap } }
 const citywidePath = new URL('../playground/public/data/311-citywide.json', import.meta.url).pathname;
 const cityReady = existsSync(new URL('../playground/public/data/city.json', import.meta.url));
@@ -277,5 +278,111 @@ for (const city of ['chicago', 'seattle']) test(`${city} showcase switches metri
  expect(legend!.y).toBeGreaterThanOrEqual(map!.y + map!.height - 1);
  await page.getByRole('combobox', { name: 'City', exact: true }).selectOption(city === 'chicago' ? 'seattle' : 'nyc');
  await expect(page.locator('#status')).toContainText(city === 'chicago' ? 'Seattle ready' : /Local data|Citywide data/, { timeout: 30000 });
+ expect(errors).toEqual([]);
+});
+
+// A flat Mapbox terrain-RGB tile, so the terrain test needs no elevation provider.
+const demTile = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAIAAABLbSncAAAAJUlEQVR4nGNgbFvA2LaEsW0FY9saxrYNjG1bGNt2MLbtYRhaEgD0e01BVUyWhAAAAABJRU5ErkJggg==', 'base64');
+test('terrain lifts the map onto elevation, shades beneath the data, and tears back down', async ({ page }) => {
+ const errors: string[] = []; page.on('pageerror', e => errors.push(e.message));
+ await page.route('**/blocklight-test-dem/**', route => route.fulfill({ contentType: 'image/png', body: demTile }));
+ await page.goto('/');
+ await expect(page.getByRole('status')).toHaveText(/Local data|Citywide data/, { timeout: 30000 });
+ expect(await page.evaluate(() => window.blocklight.map.getTerrain())).toBeNull();
+ await page.evaluate(() => window.blocklight.setTerrain({
+   source: { type: 'raster-dem', tiles: [`${location.origin}/blocklight-test-dem/{z}/{x}/{y}.png`], tileSize: 256, maxzoom: 12, attribution: 'Test elevation' },
+   exaggeration: 1.5,
+   mask: { type: 'Feature', properties: {}, geometry: { type: 'Polygon', coordinates: [[[-75, 40], [-73, 40], [-73, 41], [-75, 41], [-75, 40]]] } },
+ }));
+ await page.waitForFunction(() => window.blocklight.map.loaded());
+ expect(await page.evaluate(() => window.blocklight.map.getTerrain())).toMatchObject({ source: 'blocklight-terrain', exaggeration: 1.5 });
+ // The sky is drawn from the theme; MapLibre's modelled atmosphere is off so those colors apply.
+ const sky = await page.evaluate(() => window.blocklight.map.getSky());
+ expect(sky['sky-color']).toBe(themes.blueprint.sky);
+ expect(sky['horizon-color']).toBe(themes.blueprint.boundary);
+ expect(Number(sky['atmosphere-blend'])).toBe(0);
+ const order = await page.evaluate(() => window.blocklight.map.getStyle().layers.map(l => l.id));
+ expect(order.indexOf('blocklight-hillshade')).toBeGreaterThan(order.indexOf('blocklight-background'));
+ expect(order.indexOf('blocklight-hillshade')).toBeLessThan(order.indexOf('blocklight-layer-buildings'));
+ // The mask covers unreliable relief: above the hillshade, still below every data layer.
+ expect(order.indexOf('blocklight-terrain-mask')).toBeGreaterThan(order.indexOf('blocklight-hillshade'));
+ expect(order.indexOf('blocklight-terrain-mask')).toBeLessThan(order.indexOf('blocklight-layer-buildings'));
+ // Terrain already raises extrusions, so the height expression must stay the plain building height.
+ expect(await page.evaluate(() => window.blocklight.map.getPaintProperty('blocklight-layer-buildings', 'fill-extrusion-base'))).toBe(0);
+ await page.screenshot({ path: 'test-results/terrain.png' });
+ await page.evaluate(() => window.blocklight.setTerrain(null));
+ await page.waitForFunction(() => window.blocklight.map.loaded());
+ expect(await page.evaluate(() => window.blocklight.map.getTerrain())).toBeNull();
+ expect(await page.evaluate(() => !!window.blocklight.map.getLayer('blocklight-hillshade'))).toBe(false);
+ expect(await page.evaluate(() => !!window.blocklight.map.getSource('blocklight-terrain'))).toBe(false);
+ expect(await page.evaluate(() => !!window.blocklight.map.getLayer('blocklight-terrain-mask'))).toBe(false);
+ expect(await page.evaluate(() => !!window.blocklight.map.getSource('blocklight-terrain-mask'))).toBe(false);
+ expect(errors).toEqual([]);
+});
+
+test('the playground terrain switch masks water and stands down for the 2D plan', async ({ page }) => {
+ const errors: string[] = []; page.on('pageerror', e => errors.push(e.message));
+ // Serve the flat test tile for the open elevation source, so the suite stays offline.
+ await page.route('**/elevation-tiles-prod/**', route => route.fulfill({ contentType: 'image/png', body: demTile }));
+ await page.goto('/');
+ await expect(page.getByRole('status')).toHaveText(/Local data|Citywide data/, { timeout: 30000 });
+ await page.evaluate(() => window.blocklight.map.jumpTo({ center: [-73.975, 40.76], zoom: 15, pitch: 60, bearing: 0 }));
+ await page.locator('#terrain').check();
+ await page.waitForFunction(() => !!window.blocklight.map.getTerrain(), null, { timeout: 30000 });
+ await page.waitForFunction(() => window.blocklight.map.loaded());
+ // The mask covers the rivers and the harbour, where the elevation model is not to be trusted.
+ expect(await page.evaluate(() => !!window.blocklight.map.getLayer('blocklight-terrain-mask'))).toBe(true);
+ const order = await page.evaluate(() => window.blocklight.map.getStyle().layers.map(l => l.id));
+ expect(order.indexOf('blocklight-terrain-mask')).toBeGreaterThan(order.indexOf('blocklight-hillshade'));
+ expect(order.indexOf('blocklight-terrain-mask')).toBeLessThan(order.indexOf('blocklight-layer-buildings'));
+ // Draping ground layers onto the mesh blurs them, so a flat plan drops terrain entirely.
+ await page.locator('#view2d').click();
+ await expect.poll(() => page.evaluate(() => !!window.blocklight.map.getTerrain())).toBe(false);
+ await expect(page.locator('#terrain')).toBeDisabled();
+ await expect(page.locator('#terrain-note')).toHaveText(/3D buildings only/);
+ await page.locator('#view3d').click();
+ await expect.poll(() => page.evaluate(() => !!window.blocklight.map.getTerrain())).toBe(true);
+ await expect(page.locator('#terrain')).toBeEnabled();
+ // Terrain must not disturb the camera: toggling it around the ease keeps the zoom put.
+ expect(await page.evaluate(() => Math.round(window.blocklight.map.getZoom()))).toBe(15);
+ // Zoomed out the view becomes flat footprints, which drape the same way, so terrain stands down.
+ await page.evaluate(() => window.blocklight.map.jumpTo({ zoom: 11.8 }));
+ await expect(page.getByRole('status')).toContainText('Overview', { timeout: 20000 });
+ await expect.poll(() => page.evaluate(() => !!window.blocklight.map.getTerrain())).toBe(false);
+ await expect(page.locator('#terrain')).toBeDisabled();
+ await page.evaluate(() => window.blocklight.map.jumpTo({ center: [-73.975, 40.76], zoom: 15, pitch: 60 }));
+ await expect.poll(() => page.evaluate(() => !!window.blocklight.map.getTerrain()), { timeout: 20000 }).toBe(true);
+ // Turning it off releases every terrain layer and source.
+ await page.locator('#terrain').uncheck();
+ await expect.poll(() => page.evaluate(() => !!window.blocklight.map.getSource('blocklight-terrain-mask'))).toBe(false);
+ expect(await page.evaluate(() => !!window.blocklight.map.getTerrain())).toBe(false);
+ expect(errors).toEqual([]);
+});
+
+test('heightless footprints are draped on the terrain instead of buried by it', async ({ page }) => {
+ const errors: string[] = []; page.on('pageerror', e => errors.push(e.message));
+ await page.route('**/elevation-tiles-prod/**', route => route.fulfill({ contentType: 'image/png', body: demTile }));
+ // Seattle reports no height for most of its footprints, and sits on a slope.
+ await page.goto('/?city=seattle');
+ await expect(page.locator('#status')).toContainText('ready', { timeout: 30000 });
+ const grounded = 'blocklight-layer-buildings-grounded';
+ const visibility = () => page.evaluate(id => window.blocklight.map.getLayoutProperty(id, 'visibility'), grounded);
+ // Without terrain the extrusion draws them flat on the ground plane, so nothing is draped.
+ expect(await visibility()).toBe('none');
+ await page.locator('#terrain').check();
+ await expect.poll(() => page.evaluate(() => !!window.blocklight.map.getTerrain()), { timeout: 30000 }).toBe(true);
+ await page.waitForFunction(() => window.blocklight.map.loaded());
+ expect(await visibility()).toBe('visible');
+ const heights = await page.evaluate(id => window.blocklight.map.queryRenderedFeatures({ layers: [id] }).map(f => Number(f.properties.height_m)), grounded);
+ expect(heights.length).toBeGreaterThan(50);
+ // The draped layer carries only what an extrusion cannot show: the heightless footprints.
+ expect(heights.every(h => !(h > 0))).toBe(true);
+ // The 2D plan already draws every footprint flat, so the draped copy stands down.
+ await page.locator('#view2d').click();
+ await expect.poll(visibility).toBe('none');
+ await page.locator('#view3d').click();
+ await expect.poll(visibility).toBe('visible');
+ await page.locator('#terrain').uncheck();
+ await expect.poll(visibility).toBe('none');
  expect(errors).toEqual([]);
 });

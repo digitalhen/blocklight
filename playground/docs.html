@@ -98,10 +98,72 @@ createMap({
 <td><code>pitch</code></td>
 <td>Defaults to 57°; use <code>0</code> for an initial flat view.</td>
 </tr>
+<tr>
+<td><code>terrain</code></td>
+<td><code>{ source, exaggeration?, hillshade?, sky?, mask? }</code>, raising the whole map onto elevation data you supply.</td>
+</tr>
 </tbody></table>
 <p>Call <code>await map.setDataset(id)</code> or <code>await map.replaceDatasets(definitions, activeId)</code> to update data through code. After <code>await map.ready</code>, <code>map.setPerspective(&#39;2d&#39;)</code> changes the view. <code>map.setTheme(&#39;paper&#39;)</code> changes the base theme. Colors stay as explicitly configured. <code>map.getSelection()</code> reads the current selection. Call <code>map.destroy()</code> when unmounting an SPA component; page navigation cleanup is automatic.</p>
 <p><code>map.datasetController</code> exposes the building dataset controller after <code>ready</code> for custom interfaces (and is undefined for maps without datasets). When using built-in controls, update data through <code>map.setDataset()</code> / <code>map.replaceDatasets()</code> so the UI stays synchronized.</p>
 <p><code>map.engine</code> exposes the lower-level <code>CityMap</code> for custom layers and events; <code>map.engine.map</code> exposes MapLibre. The APIs below support applications with their own controls and detail layouts, such as the citywide showcase. Blocklight owns building identity, joins, overview transitions, and selection; MapLibre renders geometry and handles camera interaction.</p>
+<h2>Elevation</h2>
+<p>Two kinds of elevation are available, and they are independent.</p>
+<p><strong>3D terrain</strong> raises the whole map onto a digital elevation model, so buildings, streets and overlays follow the real ground. Blocklight bundles no elevation tiles and contacts no provider on its own: you pass a MapLibre <code>raster-dem</code> source, with its own attribution and any key that source requires.</p>
+<pre><code class="language-ts">const map = createMap({
+  container: &#39;map&#39;,
+  buildings: &#39;/data/buildings.json&#39;,
+  terrain: {
+    // Any raster-dem source you are entitled to use, including one you host.
+    source: { type: &#39;raster-dem&#39;, tiles: [&#39;https://example.org/dem/{z}/{x}/{y}.png&#39;], tileSize: 256, encoding: &#39;terrarium&#39;, attribution: &#39;Elevation: your source&#39; },
+    exaggeration: 1.2,  // 1 is true elevation
+    hillshade: true,    // relief shading beneath your data, themed (default)
+    sky: true,          // a themed sky above the horizon (default)
+  },
+});
+</code></pre>
+<h3>Masking unreliable relief</h3>
+<p>Open elevation models are surface models stitched from several sources, so over water they carry
+mosaic seams, piers and bridge decks rather than a flat surface. Hillshade renders all of it: in
+New York a bright ridge runs down the middle of the Hudson, where the tiles are joined along the
+state line. The terrain mesh itself is fine — it is only the shading that shows the noise.</p>
+<p>Pass a <code>mask</code> to cover the relief wherever the model is not to be trusted. It is drawn above the
+hillshade and below your data, filled with the theme background unless you set <code>maskColor</code>.
+<code>outsideMask(land, bounds)</code> builds one from a landmass, punching each polygon out of a covering
+rectangle so that only the land keeps its relief:</p>
+<pre><code class="language-ts">import { outsideMask } from &#39;blocklight&#39;;
+
+createMap({
+  container: &#39;map&#39;,
+  buildings: &#39;/data/buildings.json&#39;,
+  terrain: { source: dem, mask: outsideMask(landPolygons, [-74.5, 40.3, -73.4, 41.1]) },
+});
+</code></pre>
+<p>Holes come from each landmass outer ring only, so a lake inside a landmass stays covered — it is
+water too. Without a landmass to invert, pass water polygons as the mask directly.</p>
+<p>Terrain belongs to the extruded 3D buildings alone. It is suspended for the 2D plan and for the
+zoomed-out overview, and restored when the 3D buildings come back. Both of those are flat fills,
+and MapLibre drapes flat ground layers through an offscreen texture that visibly blurs and dims
+them, for no gain — neither view shows elevation. Terrain is applied either side of the camera
+transition rather than during it, because changing it mid-ease makes MapLibre recompute zoom from
+the camera&#39;s altitude over the mesh and lurch the view.</p>
+<p>Two further limits are worth knowing. A pitched camera under terrain draws less geometry near the
+horizon than a flat map does, so distant buildings thin out; at pitch 0 the two render identically.
+MapLibre also raises each extrusion by the elevation at its footprint centroid alone, so on a
+slope a building with no height sits at one level while the ground around it climbs, and the
+uphill side swallows it. Blocklight handles that: while terrain is on, footprints with no height
+are drawn as a draped fill — <code>&lt;id&gt;-grounded</code> — which follows the terrain surface exactly and wraps
+them onto the slope. The extrusion layer keeps every building that has a height. Nothing is
+invented for the heightless ones; they are simply drawn flat on the real ground instead of under
+it. The layer stands down for the 2D plan, which already draws every footprint flat.</p>
+<p>Terrain can be switched at runtime with <code>map.setTerrain(options)</code> and removed with <code>map.setTerrain(null)</code>; <code>map.engine.getTerrain()</code> reads the current setting. Hillshade and sky colors follow the active theme, so <code>setTheme()</code> keeps terrain consistent. Terrain raises tile and memory cost, so measure it before enabling it citywide.</p>
+<p><strong>Per-building ground elevation</strong> suits a flat-earth map whose footprints already carry the height of the ground beneath them. Name that field and each building starts at its own elevation instead of at zero:</p>
+<pre><code class="language-ts">createMap({
+  container: &#39;map&#39;,
+  buildings: { source: &#39;/data/buildings.json&#39;, heightProperty: &#39;height_m&#39;, elevationProperty: &#39;ground_elev_m&#39; },
+});
+</code></pre>
+<p>Values are in meters, negatives are clamped to zero, and a missing value falls back to zero. <code>baseHeightProperty</code>, when set, still measures from the building&#39;s own ground, so a building raised by elevation keeps its base offset.</p>
+<p>The two settings do not stack. MapLibre already lifts extrusions onto terrain, so whenever terrain is active <code>elevationProperty</code> is ignored rather than added a second time. That means you can leave the property configured and toggle terrain freely.</p>
 <h2>Prepare your data</h2>
 <p><strong>Prepared building attributes:</strong> supply records keyed by a unique footprint property. <code>records</code> is an optional dot path to the array; omit it for a top-level array. <code>aggregate</code> defaults to counting records. Sum fields may use dot paths; <code>missing: 0</code> explicitly treats an absent or null amount as zero. Other nonnumeric amounts are rejected. The <code>property</code> option controls the decorated output field, defaulting to <code>value</code>; use that same field in the color scale.</p>
 <pre><code class="language-json">[

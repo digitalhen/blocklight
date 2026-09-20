@@ -1,5 +1,6 @@
 import { createMap, defineMapDataset, type ColorScale, type Selection, type ThemeName } from 'blocklight';
 import { cities } from './cities.js';
+import { wireTerrainToggle } from './terrain.js';
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 function node<K extends keyof HTMLElementTagNameMap>(tag: K, text: string, className?: string) {
   const el = document.createElement(tag); el.textContent = text; if (className) el.className = className; return el;
@@ -24,11 +25,13 @@ export async function startCity(id: string) {
   const records = new Map<string, Record<string, unknown>>((attributes as Record<string, unknown>[]).map(r => [String(r.id), r]));
   let active = city.datasets[0].id, three = true;
   const definitions = city.datasets.map(defineMapDataset);
+  let setFlat: ((flat: boolean) => void) | undefined;
   const app = createMap({
     container: '#map', center: city.center, zoom: city.zoom, pitch: 57, bearing: -25,
     mapOptions: { minZoom: 12, maxZoom: 18.5, maxBounds: [[city.bounds[0] - .01, city.bounds[1] - .01], [city.bounds[2] + .01, city.bounds[3] + .01]] },
     controls: [], details: false,
-    buildings: { source: base + 'buildings.geojson', featureId: 'building_id', detailZoom: 14, attribution: `${city.sourceLabel} · ${id === 'seattle' ? 'Seattle GIS · 2023 outlines' : 'historical attributes'}` },
+    buildings: { source: base + 'buildings.geojson', featureId: 'building_id', detailZoom: 14, attribution: `${city.sourceLabel} · ${id === 'seattle' ? 'Seattle GIS · 2023 outlines' : 'historical attributes'}`,
+      onChange: state => setFlat?.(state.mode === 'overview' || !three) },
     datasets: city.datasets.map(d => ({ ...d, source: datasets })),
     onError: error => { $('status').textContent = error.message; },
   });
@@ -74,10 +77,16 @@ export async function startCity(id: string) {
     finally { selector.disabled = false; }
   };
   function perspective(value: boolean) {
-    three = value; app.setPerspective(three ? '3d' : '2d');
+    three = value;
+    const flat = !three || app.datasetController?.state.mode === 'overview';
+    // Terrain changes lurch the camera mid-ease, so drop it first and restore it after.
+    if (flat) setFlat?.(true);
+    app.setPerspective(three ? '3d' : '2d');
+    if (!flat) map.map.once('moveend', () => setFlat?.(false));
     for (const [id, selected] of [['view3d', three], ['view2d', !three]] as const) { $(id).classList.toggle('active', selected); $(id).setAttribute('aria-pressed', String(selected)); }
   }
   $('view3d').onclick = () => perspective(true); $('view2d').onclick = () => perspective(false);
+  setFlat = wireTerrainToggle(map, `Real ground beneath ${city.name}`);
   $('reset').onclick = () => { perspective(three); map.map.easeTo({ center: city.center, zoom: city.zoom, pitch: three ? 57 : 0, bearing: three ? -25 : 0 }); };
   for (const theme of ['blueprint', 'paper'] as ThemeName[]) $(theme).onclick = () => {
     app.setTheme(theme); document.documentElement.dataset.theme = theme;

@@ -22,11 +22,16 @@ export function tileKeys(bounds: Bounds, zoom: number): string[] {
 /** Static JSON geometry in small geographic files. Requires no tile server or API key. */
 export class GeoJSONTileLoader {
   private cache = new Map<string, FeatureCollection>();
+  private lastKeys = '';
+  private lastResult?: FeatureCollection;
   constructor(readonly manifest: GeoJSONTileManifest, readonly manifestURL: string) {
     if (manifest.schemaVersion !== 1 || !Number.isInteger(manifest.zoom) || !manifest.tiles || typeof manifest.template !== 'string') throw new Error('Invalid GeoJSON tile manifest.');
   }
+  /** Returns the identical collection when the viewport still covers the same tiles, so callers can skip redundant work. */
   async load(bounds: Bounds, signal?: AbortSignal): Promise<FeatureCollection> {
     const keys = tileKeys(bounds, this.manifest.zoom).filter(key => Object.hasOwn(this.manifest.tiles, key));
+    const signature = keys.join(',');
+    if (this.lastResult && signature === this.lastKeys) { signal?.throwIfAborted(); return this.lastResult; }
     const pending = [...keys], loaded = new Map<string, FeatureCollection>();
     await Promise.all(Array.from({ length: Math.min(6, pending.length) }, async () => {
       while (pending.length) {
@@ -51,6 +56,8 @@ export class GeoJSONTileLoader {
       if (feature.id == null) throw new Error(`Tile ${key} contains a feature without an ID.`);
       features.set(feature.id, feature);
     }
-    return { type: 'FeatureCollection', features: [...features.values()] };
+    const result: FeatureCollection = { type: 'FeatureCollection', features: [...features.values()] };
+    this.lastKeys = signature; this.lastResult = result;
+    return result;
   }
 }

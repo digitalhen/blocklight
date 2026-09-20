@@ -19,6 +19,8 @@ export interface BuildingViewOptions {
   id?: string;
   featureId?: string;
   heightProperty?: string;
+  /** Ground elevation in metres per footprint, lifting each building. Ignored when the map uses 3D terrain. */
+  elevationProperty?: string;
   color?: string | ColorScale;
   extruded?: boolean;
   attribution?: string;
@@ -53,7 +55,8 @@ export function geometryLoader(source: GeometrySource, lifetimeSignal?: AbortSig
 /** Owns geometry loading, overview/plan/extrusion representations, and stable selection. */
 export async function addBuildingView(city: CityMap, options: BuildingViewOptions) {
   const id = options.id ?? 'buildings', featureId = options.featureId ?? 'source_id';
-  const layerIds = { buildings: id, footprints: `${id}-footprints`, overview: `${id}-overview` };
+  const layerIds = { buildings: id, footprints: `${id}-footprints`, grounded: `${id}-grounded`, overview: `${id}-overview` };
+  const heightProperty = options.heightProperty ?? 'height_m';
   const owned = Object.values(layerIds);
   const detailZoom = options.detailZoom ?? (options.overview ? 14 : 0);
   if (!Number.isFinite(detailZoom) || detailZoom < 0 || detailZoom > 24) throw new Error('detailZoom must be between 0 and 24.');
@@ -66,7 +69,17 @@ export async function addBuildingView(city: CityMap, options: BuildingViewOption
   const vectorOverview = isVectorSource(options.overview) ? options.overview : undefined;
   const overviewLoader = options.overview && !vectorOverview ? geometryLoader(options.overview as GeometrySource, options.signal) : undefined;
   const mode = () => detailZoom > 0 && city.map.getZoom() < detailZoom ? 'overview' as const : 'buildings' as const;
-  const activeLayer = () => mode() === 'overview' ? layerIds.overview : perspective === '3d' ? layerIds.buildings : layerIds.footprints;
+  /*
+   * MapLibre raises an extrusion by the elevation at its footprint centroid, so a building with
+   * no height sits at one height while the ground around it slopes, and the uphill side swallows
+   * it. A draped fill follows the terrain surface exactly, so flat footprints are drawn that way
+   * instead of as extrusions that would be buried.
+   */
+  const grounded = () => !!city.getTerrain();
+  const isFlat = (feature?: { properties?: Record<string, unknown> | null }) => !(Number(feature?.properties?.[heightProperty]) > 0);
+  const activeLayer = (feature?: { properties?: Record<string, unknown> | null }) => mode() === 'overview' ? layerIds.overview
+    : perspective === '2d' ? layerIds.footprints
+    : grounded() && isFlat(feature) ? layerIds.grounded : layerIds.buildings;
   const state = (): BuildingViewState => ({ mode: mode(), perspective, featureCount: (mode() === 'overview' ? overview : detail).features.length });
   const owns = (selection: Selection | null) => !!selection && owned.includes(selection.layerId);
   function validate(fc: FeatureCollection) {
@@ -85,12 +98,13 @@ export async function addBuildingView(city: CityMap, options: BuildingViewOption
     const collection = mode() === 'overview' ? overview : detail;
     const feature = collection.features.find(f => f.properties?.[featureId] === selection!.feature.properties[featureId]) ?? selection!.feature;
     const decorated = transform({ type: 'FeatureCollection', features: [feature] }).features[0];
-    city.selectFeature(activeLayer(), { ...decorated, id: decorated.properties?.[featureId] } as Selection['feature'], selection!.lngLat);
+    city.selectFeature(activeLayer(decorated), { ...decorated, id: decorated.properties?.[featureId] } as Selection['feature'], selection!.lngLat);
   }
   function syncVisibility() {
     if (disposed) return;
     city.setVisible(layerIds.buildings, visible && perspective === '3d', { preserveSelection: true });
     city.setVisible(layerIds.footprints, visible && perspective === '2d', { preserveSelection: true });
+    city.setVisible(layerIds.grounded, visible && perspective === '3d' && grounded(), { preserveSelection: true });
     city.setVisible(layerIds.overview, visible, { preserveSelection: true });
     transfer();
   }
@@ -98,6 +112,7 @@ export async function addBuildingView(city: CityMap, options: BuildingViewOption
     const nextDetail = transform(detail), nextOverview = transform(overview);
     city.setData(layerIds.buildings, nextDetail, { preserveSelection: true });
     city.setData(layerIds.footprints, nextDetail, { preserveSelection: true });
+    city.setData(layerIds.grounded, nextDetail, { preserveSelection: true });
     if (!vectorOverview) city.setData(layerIds.overview, nextOverview, { preserveSelection: true });
     else paintVector(nextOverview);
     transfer(); options.onChange?.(state());
@@ -129,6 +144,10 @@ export async function addBuildingView(city: CityMap, options: BuildingViewOption
     if (lowZoom && vectorOverview) { updateVector(); return; }
     const geometry = lowZoom && overviewLoader ? await overviewLoader.load(bbox, controller.signal) : await detailLoader.load(bbox, controller.signal);
     if (disposed || current !== revision) return;
+    // Panning within the same tiles yields the identical collection; re-tiling it would only
+    // make the renderer drop and rebuild everything it is already drawing. The camera still
+    // moved, so report the state — the mode may have flipped between overview and buildings.
+    if (geometry === (lowZoom ? overview : detail)) { options.onChange?.(state()); return; }
     if (lowZoom) overview = validate(geometry);
     else detail = validate(geometry);
     apply();
@@ -142,19 +161,25 @@ export async function addBuildingView(city: CityMap, options: BuildingViewOption
     if (disposed) return;
     disposed = true; controller?.abort(); ++revision;
     city.map.off('moveend', onMove); city.map.off('remove', onRemove); city.map.off('sourcedata', onSource);
+    offTerrain?.();
     if (vectorFrame) cancelAnimationFrame(vectorFrame);
     options.signal?.removeEventListener('abort', dispose);
     if (!removed && !city.isDestroyed) for (const layer of installed) city.removeLayer(layer);
   }
   function onRemove() { removed = true; dispose(); }
   const installed: string[] = [];
+  let offTerrain: (() => void) | undefined;
   await city.ready; options.signal?.throwIfAborted();
+  // Terrain decides whether heightless footprints are drawn draped or left to the extrusion.
+  offTerrain = city.on('terrain', () => { if (!disposed) syncVisibility(); });
   city.map.once('remove', onRemove);
   options.signal?.addEventListener('abort', dispose, { once: true });
   try {
     for (const layer of [
-      buildings({ id: layerIds.buildings, source: empty(), promoteId: featureId, color: options.color, minzoom: detailZoom, heightProperty: options.heightProperty, attribution: options.attribution, visible: perspective === '3d' }),
+      buildings({ id: layerIds.buildings, source: empty(), promoteId: featureId, color: options.color, minzoom: detailZoom, heightProperty: options.heightProperty, elevationProperty: options.elevationProperty, attribution: options.attribution, visible: perspective === '3d' }),
       buildings({ id: layerIds.footprints, source: empty(), promoteId: featureId, color: options.color, minzoom: detailZoom, extruded: false, attribution: options.attribution, visible: perspective === '2d' }),
+      // Only the footprints an extrusion cannot show: heightless buildings, wrapped onto the slope.
+      buildings({ id: layerIds.grounded, source: empty(), promoteId: featureId, color: options.color, minzoom: detailZoom, extruded: false, opacity: 1, filter: ['!', ['>', ['to-number', ['get', heightProperty], 0], 0]], attribution: options.attribution, visible: perspective === '3d' && grounded() }),
       polygons({ id: layerIds.overview, source: vectorOverview ?? empty(), promoteId: featureId, color: options.color, maxzoom: detailZoom, opacity: 0.75, attribution: options.attribution }),
     ]) { city.addLayer(layer); installed.push(layer.id); }
     await refresh();

@@ -1,7 +1,26 @@
 import type { Feature, Geometry } from 'geojson';
-import { Map as LibreMap, NavigationControl, type MapOptions, type GeoJSONSource, type MapMouseEvent, type StyleSpecification } from 'maplibre-gl';
+import { Map as LibreMap, NavigationControl, type MapOptions, type GeoJSONSource, type MapMouseEvent, type StyleSpecification, type RasterDEMSourceSpecification, type SkySpecification } from 'maplibre-gl';
 import { resolveTheme, type Theme, type ThemeName } from './themes.js';
-import { isVectorSource, sourceId, renderId, toMapLibreLayer, type LayerDefinition, type GeoJSONData } from './layers.js';
+import { isVectorSource, sourceId, renderId, toMapLibreLayer, type LayerDefinition, type GeoJSONData, type StyleContext } from './layers.js';
+/** 3D terrain from an elevation source you supply. Blocklight bundles no elevation tiles. */
+export interface TerrainOptions {
+  /** A raster-dem source, including its own attribution and any key its provider needs. */
+  source: RasterDEMSourceSpecification;
+  /** Vertical scale of the relief. Defaults to 1, true elevation. */
+  exaggeration?: number;
+  /** Shade the relief beneath the data layers. Defaults to true. */
+  hillshade?: boolean;
+  /** Draw a themed sky above the horizon. Defaults to true. */
+  sky?: boolean;
+  /**
+   * Cover relief where the elevation model is untrustworthy — typically water, where open
+   * DEMs carry mosaic seams, piers and bridge decks. Drawn above the hillshade and below
+   * your data. `outsideMask()` builds one from a landmass.
+   */
+  mask?: GeoJSONData;
+  /** Fill for the mask. Defaults to the theme background. */
+  maskColor?: string;
+}
 export interface City { id: string; name: string; center: [number, number]; zoom?: number; bounds?: [[number, number], [number, number]] }
 export interface CityMapOptions {
   container: string | HTMLElement;
@@ -12,12 +31,41 @@ export interface CityMapOptions {
   pitch?: number;
   bearing?: number;
   navigation?: boolean;
+  /** Raise the map onto real elevation. Buildings then sit on the terrain automatically. */
+  terrain?: TerrainOptions;
   /** Advanced engine options; Blocklight owns the container and base style. */
   mapOptions?: Omit<MapOptions, 'container' | 'style'>;
 }
 export interface Selection { layerId: string; feature: Feature<Geometry, Record<string, unknown>>; lngLat: { lng: number; lat: number } }
-interface Events { select: Selection | null; hover: Selection | null; error: Error }
+interface Events { select: Selection | null; hover: Selection | null; error: Error; terrain: TerrainOptions | null }
 type FeatureRef = { source: string; sourceLayer?: string; id: string | number };
+/** Validate a terrain option and return an owned copy, mirroring resolveTheme. */
+export function resolveTerrain(terrain: TerrainOptions): TerrainOptions {
+  if (terrain.source?.type !== 'raster-dem') throw new Error('Terrain needs a raster-dem source you supply; Blocklight bundles no elevation tiles.');
+  if (!terrain.source.url && !terrain.source.tiles?.length) throw new Error('A terrain source needs a TileJSON url or tile URLs.');
+  if (terrain.exaggeration != null && (!Number.isFinite(terrain.exaggeration) || terrain.exaggeration < 0)) throw new Error('Terrain exaggeration must be zero or more.');
+  return { ...terrain };
+}
+export const terrainSourceId = 'blocklight-terrain';
+export const hillshadeLayerId = 'blocklight-hillshade';
+export const terrainMaskId = 'blocklight-terrain-mask';
+/** Perceived lightness of a #rgb or #rrggbb color, so relief works in dark and light themes alike. */
+function lightness(color: string): number {
+  const hex = color.replace('#', '');
+  const full = hex.length === 3 ? [...hex].map(c => c + c).join('') : hex;
+  if (!/^[0-9a-fA-F]{6}$/.test(full)) return 0.5;
+  const [r, g, b] = [0, 2, 4].map(i => parseInt(full.slice(i, i + 2), 16) / 255);
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+/** Shade the slopes away from the light and toward it, whichever way round the theme runs. */
+export function hillshadePaint(theme: Theme) {
+  const [shadow, highlight] = lightness(theme.background) <= lightness(theme.muted) ? [theme.background, theme.muted] : [theme.muted, theme.land];
+  return { 'hillshade-shadow-color': shadow, 'hillshade-highlight-color': highlight, 'hillshade-accent-color': theme.street, 'hillshade-exaggeration': 0.45 };
+}
+/** Relief shading and sky drawn from the theme, so terrain reads the same in both palettes. */
+export function terrainSky(theme: Theme): SkySpecification {
+  return { 'sky-color': theme.sky ?? theme.background, 'horizon-color': theme.boundary, 'fog-color': theme.background, 'sky-horizon-blend': 0.6, 'horizon-fog-blend': 0.6, 'fog-ground-blend': 0.02, 'atmosphere-blend': 0 };
+}
 export function baseStyle(theme: Theme): StyleSpecification {
   return { version: 8, name: 'blocklight', sources: {}, light: { anchor: 'viewport', color: '#ffffff', intensity: 0.35, position: [1.5, 210, 35] }, layers: [{ id: 'blocklight-background', type: 'background', paint: { 'background-color': theme.background } }] };
 }
@@ -32,6 +80,7 @@ export class CityMap {
   private selected?: FeatureRef;
   private selection: Selection | null = null;
   private hovered?: FeatureRef;
+  private terrain?: TerrainOptions;
   private listeners = new Map<keyof Events, Set<(value: never) => void>>();
   private rejectReady!: (error: Error) => void;
   constructor(options: CityMapOptions) {
@@ -40,6 +89,7 @@ export class CityMap {
     if (!probe) throw new Error('Blocklight requires a browser with WebGL 2 enabled.');
     probe.getExtension('WEBGL_lose_context')?.loseContext();
     this.theme = resolveTheme(options.theme);
+    if (options.terrain) this.terrain = resolveTerrain(options.terrain);
     this.map = new LibreMap({
       center: options.center ?? options.city?.center ?? [0, 0], zoom: options.zoom ?? options.city?.zoom ?? 12,
       pitch: options.pitch ?? 50, bearing: options.bearing ?? -25,
@@ -53,6 +103,7 @@ export class CityMap {
         try {
           this.loaded = true;
           this.map.setPaintProperty('blocklight-background', 'background-color', this.theme.background);
+          this.installTerrain();
           for (const layer of this.layers.values()) this.install(layer);
           resolve();
         } catch (error) { reject(error); }
@@ -76,8 +127,52 @@ export class CityMap {
       const { sourceLayer, ...source } = layer.source;
       this.map.addSource(sourceId(layer.id), { ...source, promoteId: layer.promoteId ?? source.promoteId, attribution: layer.attribution ?? source.attribution });
     } else this.map.addSource(sourceId(layer.id), { type: 'geojson', data: layer.source, ...(layer.promoteId ? { promoteId: layer.promoteId } : { generateId: layer.generateId ?? false }), attribution: layer.attribution });
-    this.map.addLayer(toMapLibreLayer(layer, this.theme));
+    this.map.addLayer(toMapLibreLayer(layer, this.theme, this.style()));
   }
+  private style(): StyleContext { return { terrain: !!this.terrain }; }
+  /** Re-apply paint for every layer after a theme or terrain change, keeping geometry and selection. */
+  private restyle() {
+    if (!this.loaded) return;
+    for (const layer of this.layers.values()) {
+      const spec = toMapLibreLayer(layer, this.theme, this.style());
+      for (const [property, value] of Object.entries(spec.paint ?? {})) this.map.setPaintProperty(spec.id, property as Parameters<LibreMap['setPaintProperty']>[1], value);
+    }
+  }
+  private installTerrain() {
+    const terrain = this.terrain;
+    if (!terrain || !this.loaded) return;
+    this.map.addSource(terrainSourceId, terrain.source);
+    this.map.setTerrain({ source: terrainSourceId, exaggeration: terrain.exaggeration ?? 1 });
+    // Relief and its mask belong under the data, directly above the background.
+    const first = this.map.getStyle().layers.find(l => l.id.startsWith('blocklight-layer-'))?.id;
+    if (terrain.hillshade !== false) this.map.addLayer({ id: hillshadeLayerId, type: 'hillshade', source: terrainSourceId, paint: hillshadePaint(this.theme) }, first);
+    if (terrain.mask) {
+      this.map.addSource(terrainMaskId, { type: 'geojson', data: terrain.mask });
+      this.map.addLayer({ id: terrainMaskId, type: 'fill', source: terrainMaskId, paint: { 'fill-color': terrain.maskColor ?? this.theme.background } }, first);
+    }
+    if (terrain.sky !== false) this.map.setSky(terrainSky(this.theme));
+  }
+  private removeTerrain() {
+    if (!this.loaded) return;
+    this.map.setTerrain(null);
+    this.map.setSky({ 'atmosphere-blend': 0 });
+    if (this.map.getLayer(terrainMaskId)) this.map.removeLayer(terrainMaskId);
+    if (this.map.getSource(terrainMaskId)) this.map.removeSource(terrainMaskId);
+    if (this.map.getLayer(hillshadeLayerId)) this.map.removeLayer(hillshadeLayerId);
+    if (this.map.getSource(terrainSourceId)) this.map.removeSource(terrainSourceId);
+  }
+  /** Raise the map onto elevation data, or pass null to return it to a flat ground plane. */
+  setTerrain(terrain: TerrainOptions | null): this {
+    this.assertLive();
+    const next = terrain ? resolveTerrain(terrain) : undefined;
+    this.removeTerrain();
+    this.terrain = next;
+    this.installTerrain();
+    this.restyle();
+    this.emit('terrain', next ?? null);
+    return this;
+  }
+  getTerrain(): TerrainOptions | undefined { return this.terrain; }
   addLayer(layer: LayerDefinition): this {
     this.assertLive();
     if (this.layers.has(layer.id)) throw new Error(`Layer "${layer.id}" already exists.`);
@@ -117,7 +212,7 @@ export class CityMap {
     const layer = this.getLayer(id);
     layer.color = color;
     if (this.loaded) {
-      const spec = toMapLibreLayer(layer, this.theme);
+      const spec = toMapLibreLayer(layer, this.theme, this.style());
       for (const [property, value] of Object.entries(spec.paint ?? {})) this.map.setPaintProperty(spec.id, property as Parameters<LibreMap['setPaintProperty']>[1], value);
     }
     return this;
@@ -147,10 +242,10 @@ export class CityMap {
     this.theme = resolveTheme(theme);
     if (this.loaded) {
       this.map.setPaintProperty('blocklight-background', 'background-color', this.theme.background);
-      for (const layer of this.layers.values()) {
-        const spec = toMapLibreLayer(layer, this.theme);
-        for (const [property, value] of Object.entries(spec.paint ?? {})) this.map.setPaintProperty(spec.id, property as Parameters<LibreMap['setPaintProperty']>[1], value);
-      }
+      if (this.map.getLayer(hillshadeLayerId)) for (const [property, value] of Object.entries(hillshadePaint(this.theme))) this.map.setPaintProperty(hillshadeLayerId, property as Parameters<LibreMap['setPaintProperty']>[1], value);
+      if (this.map.getLayer(terrainMaskId) && !this.terrain?.maskColor) this.map.setPaintProperty(terrainMaskId, 'fill-color', this.theme.background);
+      if (this.terrain && this.terrain.sky !== false) this.map.setSky(terrainSky(this.theme));
+      this.restyle();
     }
     return this;
   }

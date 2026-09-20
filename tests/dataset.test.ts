@@ -37,6 +37,7 @@ test('multiple datasets cache shared JSON, switch palette, preserve selection, a
    ready: Promise.resolve(),
    getSelection() { return null; }, setVisible() {},
    addLayer() {}, removeLayer() { removed = true; },
+   getTerrain: () => undefined, on: () => () => {},
    setData(_id: string, data: FeatureCollection, options: { preserveSelection: boolean }) { updates.push({ data, preserve: options.preserveSelection }); },
    setColor(_id: string, color: unknown) { colors.push(color); },
    map: { getZoom: () => 15, on() {}, getBounds: () => ({ getWest: () => 0, getSouth: () => 0, getEast: () => 1, getNorth: () => 1 }), once() {}, off() {} },

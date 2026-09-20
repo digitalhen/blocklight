@@ -56,12 +56,90 @@ This is the complete source of the dataset example. Housing and plumbing share o
 | `controls` | Defaults to `['datasets', 'perspective', 'legend']`; pass an empty array to omit these controls. |
 | `details` | `{ title, fields, datasets, note }` or `false`. Title/fields support dot paths into feature properties and the first matched record. For multiple records the displayed total is aggregated, while record fields come from the first record. |
 | `pitch` | Defaults to 57°; use `0` for an initial flat view. |
+| `terrain` | `{ source, exaggeration?, hillshade?, sky?, mask? }`, raising the whole map onto elevation data you supply. |
 
 Call `await map.setDataset(id)` or `await map.replaceDatasets(definitions, activeId)` to update data through code. After `await map.ready`, `map.setPerspective('2d')` changes the view. `map.setTheme('paper')` changes the base theme. Colors stay as explicitly configured. `map.getSelection()` reads the current selection. Call `map.destroy()` when unmounting an SPA component; page navigation cleanup is automatic.
 
 `map.datasetController` exposes the building dataset controller after `ready` for custom interfaces (and is undefined for maps without datasets). When using built-in controls, update data through `map.setDataset()` / `map.replaceDatasets()` so the UI stays synchronized.
 
 `map.engine` exposes the lower-level `CityMap` for custom layers and events; `map.engine.map` exposes MapLibre. The APIs below support applications with their own controls and detail layouts, such as the citywide showcase. Blocklight owns building identity, joins, overview transitions, and selection; MapLibre renders geometry and handles camera interaction.
+
+## Elevation
+
+Two kinds of elevation are available, and they are independent.
+
+**3D terrain** raises the whole map onto a digital elevation model, so buildings, streets and overlays follow the real ground. Blocklight bundles no elevation tiles and contacts no provider on its own: you pass a MapLibre `raster-dem` source, with its own attribution and any key that source requires.
+
+```ts
+const map = createMap({
+  container: 'map',
+  buildings: '/data/buildings.json',
+  terrain: {
+    // Any raster-dem source you are entitled to use, including one you host.
+    source: { type: 'raster-dem', tiles: ['https://example.org/dem/{z}/{x}/{y}.png'], tileSize: 256, encoding: 'terrarium', attribution: 'Elevation: your source' },
+    exaggeration: 1.2,  // 1 is true elevation
+    hillshade: true,    // relief shading beneath your data, themed (default)
+    sky: true,          // a themed sky above the horizon (default)
+  },
+});
+```
+
+### Masking unreliable relief
+
+Open elevation models are surface models stitched from several sources, so over water they carry
+mosaic seams, piers and bridge decks rather than a flat surface. Hillshade renders all of it: in
+New York a bright ridge runs down the middle of the Hudson, where the tiles are joined along the
+state line. The terrain mesh itself is fine — it is only the shading that shows the noise.
+
+Pass a `mask` to cover the relief wherever the model is not to be trusted. It is drawn above the
+hillshade and below your data, filled with the theme background unless you set `maskColor`.
+`outsideMask(land, bounds)` builds one from a landmass, punching each polygon out of a covering
+rectangle so that only the land keeps its relief:
+
+```ts
+import { outsideMask } from 'blocklight';
+
+createMap({
+  container: 'map',
+  buildings: '/data/buildings.json',
+  terrain: { source: dem, mask: outsideMask(landPolygons, [-74.5, 40.3, -73.4, 41.1]) },
+});
+```
+
+Holes come from each landmass outer ring only, so a lake inside a landmass stays covered — it is
+water too. Without a landmass to invert, pass water polygons as the mask directly.
+
+Terrain belongs to the extruded 3D buildings alone. It is suspended for the 2D plan and for the
+zoomed-out overview, and restored when the 3D buildings come back. Both of those are flat fills,
+and MapLibre drapes flat ground layers through an offscreen texture that visibly blurs and dims
+them, for no gain — neither view shows elevation. Terrain is applied either side of the camera
+transition rather than during it, because changing it mid-ease makes MapLibre recompute zoom from
+the camera's altitude over the mesh and lurch the view.
+
+Two further limits are worth knowing. A pitched camera under terrain draws less geometry near the
+horizon than a flat map does, so distant buildings thin out; at pitch 0 the two render identically.
+MapLibre also raises each extrusion by the elevation at its footprint centroid alone, so on a
+slope a building with no height sits at one level while the ground around it climbs, and the
+uphill side swallows it. Blocklight handles that: while terrain is on, footprints with no height
+are drawn as a draped fill — `<id>-grounded` — which follows the terrain surface exactly and wraps
+them onto the slope. The extrusion layer keeps every building that has a height. Nothing is
+invented for the heightless ones; they are simply drawn flat on the real ground instead of under
+it. The layer stands down for the 2D plan, which already draws every footprint flat.
+
+Terrain can be switched at runtime with `map.setTerrain(options)` and removed with `map.setTerrain(null)`; `map.engine.getTerrain()` reads the current setting. Hillshade and sky colors follow the active theme, so `setTheme()` keeps terrain consistent. Terrain raises tile and memory cost, so measure it before enabling it citywide.
+
+**Per-building ground elevation** suits a flat-earth map whose footprints already carry the height of the ground beneath them. Name that field and each building starts at its own elevation instead of at zero:
+
+```ts
+createMap({
+  container: 'map',
+  buildings: { source: '/data/buildings.json', heightProperty: 'height_m', elevationProperty: 'ground_elev_m' },
+});
+```
+
+Values are in meters, negatives are clamped to zero, and a missing value falls back to zero. `baseHeightProperty`, when set, still measures from the building's own ground, so a building raised by elevation keeps its base offset.
+
+The two settings do not stack. MapLibre already lifts extrusions onto terrain, so whenever terrain is active `elevationProperty` is ignored rather than added a second time. That means you can leave the property configured and toggle terrain freely.
 
 ## Prepare your data
 

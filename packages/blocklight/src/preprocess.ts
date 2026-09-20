@@ -1,4 +1,4 @@
-import type { Feature, FeatureCollection, Geometry, Position } from 'geojson';
+import type { Feature, FeatureCollection, Geometry, Polygon, Position } from 'geojson';
 export interface RecordMatchOptions {
   featureId: string;
   featureKeys: string[];
@@ -67,4 +67,27 @@ export function matchBuildingRecords<T extends Record<string, unknown>>(geometry
     } else unmatched.push({ recordId, reason: !key ? 'missing-key' : candidates.length ? 'ambiguous' : 'no-footprint', record });
   }
   return { matched, unmatched, summary: { records: records.length, matchedRecords: matched.length, unmatchedRecords: unmatched.length, totalWeight, matchedWeight, unmatchedWeight: totalWeight - matchedWeight } };
+}
+
+/**
+ * Cover everything inside `bounds` except the supplied polygons: an outer ring with each
+ * polygon punched out as a hole. Use it to hide terrain relief where an elevation model is
+ * untrustworthy — open DEMs carry mosaic seams, piers and bridge decks over water.
+ */
+export function outsideMask(land: FeatureCollection | Feature[], bounds: [number, number, number, number]): Feature<Polygon> {
+  const [west, south, east, north] = bounds;
+  if (!bounds.every(Number.isFinite) || west >= east || south >= north) throw new Error('A mask needs bounds ordered [west, south, east, north].');
+  const features = Array.isArray(land) ? land : land.features;
+  const holes: Position[][] = [];
+  for (const feature of features) {
+    const geometry = feature.geometry;
+    // Only outer rings become holes: a lake inside a landmass is water, and stays covered.
+    if (geometry.type === 'Polygon') holes.push(geometry.coordinates[0]);
+    else if (geometry.type === 'MultiPolygon') for (const polygon of geometry.coordinates) holes.push(polygon[0]);
+  }
+  return {
+    type: 'Feature',
+    properties: {},
+    geometry: { type: 'Polygon', coordinates: [[[west, south], [east, south], [east, north], [west, north], [west, south]], ...holes] },
+  };
 }

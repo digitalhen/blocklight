@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildings, points, toMapLibreLayer, sourceId, steppedScale, themes, createCityMap } from '../packages/blocklight/src/index.js';
+import { buildings, points, toMapLibreLayer, sourceId, steppedScale, themes, createCityMap, terrainSky, resolveTerrain, outsideMask } from '../packages/blocklight/src/index.js';
 const empty = { type: 'FeatureCollection' as const, features: [] };
 test('buildings use meter heights, clamp invalid values and keep source IDs stable across themes', () => {
   const layer = buildings({ id: 'skyline', source: empty });
@@ -41,4 +41,76 @@ test('native vector layers keep source-layer and support joined feature-state co
  const spec = toMapLibreLayer(layer, themes.blueprint);
  assert.equal('source-layer' in spec ? spec['source-layer'] : undefined, 'buildings');
  assert.match(JSON.stringify(spec.paint), /feature-state.*value/);
+});
+
+test('ground elevation lifts the whole building, and terrain suppresses it to avoid double counting', () => {
+  const layer = buildings({ id: 'hills', source: empty, elevationProperty: 'ground_elev_m', baseHeightProperty: 'base_m' });
+  const height = ['max', 0, ['to-number', ['get', 'height_m'], 0]];
+  const ground = ['max', 0, ['to-number', ['get', 'ground_elev_m'], 0]];
+  const flat = toMapLibreLayer(layer, themes.blueprint);
+  if (flat.type !== 'fill-extrusion') throw new Error('expected an extrusion');
+  assert.deepEqual(flat.paint?.['fill-extrusion-height'], ['+', ground, height]);
+  assert.deepEqual(flat.paint?.['fill-extrusion-base'], ['+', ground, ['min', height, ['max', 0, ['to-number', ['get', 'base_m'], 0]]]]);
+  // MapLibre already raises extrusions onto terrain, so the property must drop out.
+  const raised = toMapLibreLayer(layer, themes.blueprint, { terrain: true });
+  if (raised.type !== 'fill-extrusion') throw new Error('expected an extrusion');
+  assert.deepEqual(raised.paint?.['fill-extrusion-height'], height);
+  assert.deepEqual(raised.paint?.['fill-extrusion-base'], ['min', height, ['max', 0, ['to-number', ['get', 'base_m'], 0]]]);
+});
+
+test('buildings without an elevation property keep their plain ground-plane expressions', () => {
+  const plain = toMapLibreLayer(buildings({ id: 'plain', source: empty }), themes.blueprint, { terrain: true });
+  if (plain.type !== 'fill-extrusion') throw new Error('expected an extrusion');
+  assert.deepEqual(plain.paint?.['fill-extrusion-height'], ['max', 0, ['to-number', ['get', 'height_m'], 0]]);
+  assert.equal(plain.paint?.['fill-extrusion-base'], 0);
+});
+
+test('terrain needs a raster-dem source the caller supplies, with a plausible exaggeration', () => {
+  const dem = { type: 'raster-dem' as const, tiles: ['https://example.test/{z}/{x}/{y}.png'], attribution: 'Example elevation' };
+  assert.throws(() => resolveTerrain({ source: { type: 'raster' } as never }), /raster-dem/);
+  assert.throws(() => resolveTerrain({ source: { type: 'raster-dem' } }), /url or tile URLs/);
+  assert.throws(() => resolveTerrain({ source: dem, exaggeration: -1 } ), /exaggeration/);
+  assert.deepEqual(resolveTerrain({ source: dem, exaggeration: 1.4 }), { source: dem, exaggeration: 1.4 });
+  assert.equal(resolveTerrain({ source: dem }).source.attribution, 'Example elevation');
+});
+
+test('the sky follows the theme so terrain reads in both palettes', () => {
+  assert.equal(terrainSky(themes.blueprint)['sky-color'], themes.blueprint.sky);
+  assert.equal(terrainSky(themes.paper)['sky-color'], themes.paper.sky);
+  assert.notEqual(terrainSky(themes.paper)['horizon-color'], terrainSky(themes.blueprint)['horizon-color']);
+});
+
+test('an outside mask punches the landmass out of a covering rectangle', () => {
+  const land = {
+    type: 'FeatureCollection' as const,
+    features: [
+      { type: 'Feature' as const, properties: {}, geometry: { type: 'Polygon' as const, coordinates: [[[-1, -1], [1, -1], [1, 1], [-1, 1], [-1, -1]], [[-0.2, -0.2], [0.2, -0.2], [0.2, 0.2], [-0.2, 0.2], [-0.2, -0.2]]] } },
+      { type: 'Feature' as const, properties: {}, geometry: { type: 'MultiPolygon' as const, coordinates: [[[[2, 2], [3, 2], [3, 3], [2, 3], [2, 2]]], [[[4, 4], [5, 4], [5, 5], [4, 5], [4, 4]]]] } },
+    ],
+  };
+  const mask = outsideMask(land, [-10, -10, 10, 10]);
+  const rings = mask.geometry.coordinates;
+  assert.deepEqual(rings[0], [[-10, -10], [10, -10], [10, 10], [-10, 10], [-10, -10]]);
+  // One hole per landmass outer ring; a lake inside a landmass is water and stays covered.
+  assert.equal(rings.length, 4);
+  assert.deepEqual(rings[1], [[-1, -1], [1, -1], [1, 1], [-1, 1], [-1, -1]]);
+  assert.deepEqual(rings[3], [[4, 4], [5, 4], [5, 5], [4, 5], [4, 4]]);
+  assert.throws(() => outsideMask(land, [10, -10, -10, 10]), /west, south, east, north/);
+  assert.throws(() => outsideMask(land, [-10, 10, 10, -10]), /west, south, east, north/);
+  assert.throws(() => outsideMask(land, [-10, -10, NaN, 10]), /west, south, east, north/);
+});
+
+test('a flat building layer can be filtered and made solid, for footprints draped on terrain', () => {
+  const flat = toMapLibreLayer(buildings({
+    id: 'grounded', source: empty, extruded: false, opacity: 1,
+    filter: ['!', ['>', ['to-number', ['get', 'height_m'], 0], 0]],
+  }), themes.blueprint);
+  if (flat.type !== 'fill') throw new Error('expected a fill');
+  assert.equal(flat.paint?.['fill-opacity'], 1);
+  assert.deepEqual(flat.filter, ['!', ['>', ['to-number', ['get', 'height_m'], 0], 0]]);
+  // Unfiltered layers stay unfiltered, and flat buildings keep their translucent default.
+  const plain = toMapLibreLayer(buildings({ id: 'plainflat', source: empty, extruded: false }), themes.blueprint);
+  if (plain.type !== 'fill') throw new Error('expected a fill');
+  assert.equal(plain.filter, undefined);
+  assert.equal(plain.paint?.['fill-opacity'], 0.55);
 });

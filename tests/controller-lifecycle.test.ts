@@ -11,6 +11,12 @@ function fakeCity() {
   ready: Promise.resolve(), getSelection: () => null, clearSelection() {},
   addLayer(layer: { id: string }) { layers.add(layer.id); }, removeLayer(id: string) { layers.delete(id); },
   setVisible() {}, setData() {}, setColor() {},
+  getTerrain: () => undefined,
+  on(name: string, handler: (...args: any[]) => void) {
+   if (!events.has(name)) events.set(name, new Set());
+   events.get(name)!.add(handler);
+   return () => { events.get(name)?.delete(handler); };
+  },
   map: {
    getZoom: () => 15, getBounds: () => ({ getWest: () => 0, getEast: () => 1, getSouth: () => 0, getNorth: () => 1 }),
    on(name: string, handler: (...args: any[]) => void) { if (!events.has(name)) events.set(name, new Set()); events.get(name)!.add(handler); },
@@ -33,7 +39,8 @@ test('latest dataset switch wins, invalid input leaves active data intact, teard
    { id: 'slow', label: 'Slow', data: slow },
    { id: 'bad', label: 'Bad', data: data([{ id: 'a', count: 'bad' }]) },
   ] });
-  assert.equal(layers.size, 3);
+  // Extrusions, the 2D plan, footprints draped on terrain, and the zoomed-out overview.
+  assert.equal(layers.size, 4);
   const pending = layer.setDataset('slow');
   await layer.setDataset('a');
   resolve(new Response(JSON.stringify([{ id: 'a', count: 9 }]))); await pending;
